@@ -10,30 +10,10 @@ from matplotlib.cm import ScalarMappable
 RNG = np.random.default_rng()
 from activephasemap.np.utils import context_target_split 
 from botorch.utils.transforms import normalize, unnormalize
-from autophasemap import compute_elastic_kmeans, BaseDataSet, compute_BIC
+from activephasemap.utils.settings import from_comp_to_spectrum, get_twod_grid
+import pdb
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-def from_comp_to_spectrum(test_function, gp_model, np_model, c):
-    with torch.no_grad():
-        t_ = test_function.sim.t
-        c = torch.tensor(c).to(device)
-        gp_model.eval()
-        normalized_x = normalize(c, test_function.bounds.to(c))
-        posterior = gp_model.posterior(normalized_x)  # based on https://github.com/pytorch/botorch/issues/1110
-        t = torch.from_numpy(t_).to(device)
-        t = t.repeat(c.shape[0]).view(c.shape[0], len(t_), 1)
-        mu, std = np_model.xz_to_y(t, posterior.mean)
-
-        return mu, std  
-
-def get_twod_grid(n_grid, bounds):
-    x = np.linspace(bounds[0,0],bounds[1,0], n_grid)
-    y = np.linspace(bounds[0,1],bounds[1,1], n_grid)
-    X,Y = np.meshgrid(x,y)
-    points = np.vstack([X.ravel(), Y.ravel()]).T 
-
-    return points
 
 # plot samples in the composition grid of p(y|c)
 def _inset_spectra(c, t, mu, sigma, ax, show_sigma=False, **kwargs):
@@ -42,7 +22,7 @@ def _inset_spectra(c, t, mu, sigma, ax, show_sigma=False, **kwargs):
         ins_ax.plot(t, mu, **kwargs)
         if show_sigma:
             ins_ax.fill_between(t,mu-sigma, mu+sigma,
-            alpha=0.2, color='grey')
+            color='grey')
         ins_ax.axis('off')
         
         return 
@@ -68,11 +48,11 @@ def plot_gpmodel_grid(ax, test_function, gp_model, np_model,num_grid_spacing=10,
     c2 = np.linspace(bounds[0,1], bounds[1,1], num=num_grid_spacing)
     scaler_x = MinMaxScaler(bounds[0,0], bounds[1,0])
     scaler_y = MinMaxScaler(bounds[0,1], bounds[1,1])
-    ax.xaxis.set_major_formatter(lambda x, pos : scaled_tickformat(scaler_x, x, pos))
-    ax.yaxis.set_major_formatter(lambda y, pos : scaled_tickformat(scaler_y, y, pos))
+    # ax.xaxis.set_major_formatter(lambda x, pos : scaled_tickformat(scaler_x, x, pos))
+    # ax.yaxis.set_major_formatter(lambda y, pos : scaled_tickformat(scaler_y, y, pos))
     with torch.no_grad():
-        for i in range(10):
-            for j in range(10):
+        for i in range(num_grid_spacing):
+            for j in range(num_grid_spacing):
                 ci = np.array([c1[i], c2[j]]).reshape(1, 2)
                 mu, sigma = from_comp_to_spectrum(test_function, gp_model, np_model, ci)
                 mu_ = mu.cpu().squeeze().numpy()
@@ -85,7 +65,7 @@ def plot_gpmodel_grid(ax, test_function, gp_model, np_model,num_grid_spacing=10,
     return  
 
 def plot_experiment(t, bounds, data):
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(figsize=(4,4))
     scaler_x = MinMaxScaler(bounds[0][0], bounds[0][1])
     scaler_y = MinMaxScaler(bounds[1][0], bounds[1][1])
     ax.xaxis.set_major_formatter(lambda x, pos : scaled_tickformat(scaler_x, x, pos))
@@ -325,33 +305,14 @@ def plot_gpmodel_expt(test_function, gp_model, np_model, fname):
         plt.close()        
     return 
 
-
-class AutoPhaseMapDataSet(BaseDataSet):
-    def __init__(self, C, q, Iq, n_domain = 100):
-        super().__init__(n_domain=n_domain)
-        self.t = np.linspace(0,1, num=self.n_domain)
-        self.q = q
-        self.N = C.shape[0]
-        self.Iq = Iq
-        self.C = C
-    
-    def generate(self, process=None):
-        if process=="normalize":
-            self.F = [self.Iq[i,:]/self.l2norm(self.q, self.Iq[i,:]) for i in range(self.N)]
-        elif process=="smoothen":
-            self.F = [self._smoothen(self.Iq[i,:]/self.l2norm(self.q, self.Iq[i,:]), window_length=7, polyorder=3) for i in range(self.N)]
-        elif process is None:
-            self.F = [self.Iq[i,:] for i in range(self.N)]
-            
-        return
-
 def plot_autophasemap(pbp, fname):
-    scaler_x = MinMaxScaler(bounds[0,0], bounds[1,0])
-    scaler_y = MinMaxScaler(bounds[0,1], bounds[1,1])
+    scaler_x = MinMaxScaler(pbp.bounds[0,0], pbp.bounds[1,0])
+    scaler_y = MinMaxScaler(pbp.bounds[0,1], pbp.bounds[1,1])
 
     fig, axs = plt.subplots(1,2, figsize=(2*4, 4))
+    fig.subplots_adjust(wspace=0.5)
     axs[0].plot(pbp.sweep_n_clusters, pbp.BIC, marker='o')
-    axs[0].axvline(x = pbp.sweep_n_clusters[pbp.min_bic_clusters], ls='--', color='tab:red')
+    axs[0].axvline(x = pbp.min_bic_clusters, ls='--', color='tab:red')
 
     ax = axs[1]
     cmap = plt.get_cmap("tab10") 

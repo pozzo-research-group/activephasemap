@@ -10,6 +10,9 @@ from botorch.acquisition.objective import ScalarizedPosteriorTransform
 from botorch.acquisition.acquisition import AcquisitionFunction
 from activephasemap.models.gp import SingleTaskGP, MultiTaskGP 
 from activephasemap.models.dkl import SingleTaskDKL, MultiTaskDKL
+from torch.utils.data import Dataset
+import numpy as np
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def initialize_model(model_name, model_args, input_dim, output_dim, device):
     if model_name == 'gp':
@@ -50,4 +53,56 @@ def construct_acqf_by_model(model, train_x, train_y, num_objectives=1):
         )
 
 
-    return acqf
+    return acqf 
+
+class ActiveLearningDataset(Dataset):
+    def __init__(self, x, y):
+        self.x, self.y = self.to_tensor(x,y)
+
+    def __len__(self):
+        return len(self.x)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        xs = self.x[idx]
+        ys = self.y[idx]
+
+        return xs, ys 
+
+    def to_tensor(self, x, y):
+        x_ = torch.Tensor(x).to(device)
+        y_ = torch.Tensor(y).to(device)
+
+        return x_, y_
+    
+    def update(self, x, y):
+        x, y = self.to_tensor(x, y)
+        self.x = torch.vstack((self.x, x))
+        self.y = torch.vstack((self.y, y))
+
+        return
+    
+def from_comp_to_spectrum(test_function, gp_model, np_model, c):
+    with torch.no_grad():
+        t_ = test_function.sim.t
+        c = torch.tensor(c).to(device)
+        gp_model.eval()
+        normalized_x = normalize(c, test_function.bounds.to(c))
+        posterior = gp_model.posterior(normalized_x)  # based on https://github.com/pytorch/botorch/issues/1110
+        t = torch.from_numpy(t_).to(device)
+        t = t.repeat(c.shape[0]).view(c.shape[0], len(t_), 1)
+        mu = []
+        for _ in range(250):
+            mu_i, _ = np_model.xz_to_y(t, posterior.rsample().squeeze(0))
+            mu.append(mu_i)
+        return torch.cat(mu).mean(dim=0, keepdim=True), torch.cat(mu).std(dim=0, keepdim=True)
+    
+def get_twod_grid(n_grid, bounds):
+    x = np.linspace(bounds[0,0],bounds[1,0], n_grid)
+    y = np.linspace(bounds[0,1],bounds[1,1], n_grid)
+    X,Y = np.meshgrid(x,y)
+    points = np.vstack([X.ravel(), Y.ravel()]).T 
+
+    return points

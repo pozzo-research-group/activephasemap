@@ -118,8 +118,8 @@ class MultiTaskGP(Model):
 
         self.gp = ModelListGP(*models)
         self.mll = SumMarginalLogLikelihood(self.gp.likelihood, self.gp).to(train_x)
-        fit_gp_model(self.gp, self.mll, **kwargs)
-
+        fit_gp_model(self.gp, self.mll, **kwargs) 
+         
     def get_covaraince(self, x, xp):  
         cov = torch.zeros((1,len(xp))).to(xp)
         for m in self.gp.models:        
