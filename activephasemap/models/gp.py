@@ -17,9 +17,7 @@ from gpytorch.priors import GammaPrior
 from torch import Tensor
 import pdb
 
-
-def fit_gp_model(model, mll, **kwargs):
-    num_epochs = kwargs.pop("num_epochs", 100)
+def fit_gp_model(model, mll, num_epochs):
     optimizer = torch.optim.Adam(model.parameters(), lr=kwargs.pop("lr", 1e-3))
     model.train()
     for epoch in range(num_epochs):
@@ -43,6 +41,7 @@ class SingleTaskGP(Model):
         self.gp = None
         self.output_dim = output_dim
         self.nu = model_args["nu"] if "nu" in model_args else 2.5
+        self.num_epochs = model_args["num_epochs"] if "nu" in model_args else 100 
 
     def posterior(
         self,
@@ -87,7 +86,8 @@ class MultiTaskGP(Model):
         super().__init__()
         self.gp = None
         self.output_dim = output_dim
-        self.nu = model_args["nu"] if "nu" in model_args else 2.5
+        self.nu = model_args["nu"] if "nu" in model_args else 2.5 
+        self.num_epochs = model_args["num_epochs"] if "nu" in model_args else 100 
 
     def posterior(
         self,
@@ -107,7 +107,7 @@ class MultiTaskGP(Model):
     def num_outputs(self) -> int:
         return self.gp.num_outputs
         
-    def fit_and_save(self, train_x, train_y, **kwargs):
+    def fit_and_save(self, train_x, train_y):
         models = []
         for d in range(self.output_dim):
             models.append(
@@ -118,7 +118,7 @@ class MultiTaskGP(Model):
 
         self.gp = ModelListGP(*models)
         self.mll = SumMarginalLogLikelihood(self.gp.likelihood, self.gp).to(train_x)
-        fit_gp_model(self.gp, self.mll, **kwargs) 
+        fit_gp_model(self.gp, self.mll, self.num_epochs) 
          
     def get_covaraince(self, x, xp):  
         cov = torch.zeros((1,len(xp))).to(xp)

@@ -177,7 +177,7 @@ class SingleTaskDKL(Model):
     def num_outputs(self) -> int:
         return self.gp.num_outputs
 
-    def fit_and_save(self, train_x, train_y, save_dir):
+    def fit_and_save(self, train_x, train_y):
         if self.output_dim > 1:
             raise RuntimeError(
                 "SingleTaskDKL does not fit tasks with multiple objectives")
@@ -294,7 +294,7 @@ class MultiTaskDKL(Model):
             optimizer.step() 
 
 
-    def fit_and_save(self, x, y, save_dir):
+    def fit_and_save(self, x, y):
         train_ind = np.random.randint(0, len(x), int(0.8*len(x)))
         test_ind = np.setdiff1d(np.arange(len(x)), train_ind)
         train_x, train_y = x[train_ind,:], y[train_ind,:]
