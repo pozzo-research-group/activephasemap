@@ -33,7 +33,7 @@ class PhaseBoundaryPenalty(torch.nn.Module):
     r"""A penalty funcion based on phase boundaries to be added to any arbitrary acquisition function
     to construct a PenalizedAcquisitionFunction."""
 
-    def __init__(self, test_function, gp_model, np_model, min_clusters=2, max_clusters=5):
+    def __init__(self, test_function, gp_model, np_model, min_clusters=2, max_clusters=5, max_iter_search=10, max_iter = 20):
         super().__init__()
         self.test_function = test_function
         self.gp_model = gp_model
@@ -55,11 +55,11 @@ class PhaseBoundaryPenalty(torch.nn.Module):
         self.sweep_n_clusters = np.arange(min_clusters,max_clusters+1)
         self.BIC = []
         for n_clusters in self.sweep_n_clusters:
-            out = compute_elastic_kmeans(self.data, n_clusters, max_iter=20, verbose=0, smoothen=False)
+            out = compute_elastic_kmeans(self.data, n_clusters, max_iter=max_iter_search, verbose=0, smoothen=False)
             self.BIC.append(compute_BIC(self.data, out.fik_gam, out.qik_gam, out.delta_n))
 
         self.min_bic_clusters = self.sweep_n_clusters[np.argmin(self.BIC)]
-        self.out = compute_elastic_kmeans(self.data, self.min_bic_clusters, max_iter=20, verbose=0, smoothen=True)
+        self.out = compute_elastic_kmeans(self.data, self.min_bic_clusters, max_iter=max_iter, verbose=0, smoothen=True)
 
     def get_entropy(self, c):
         SRSF = SquareRootSlopeFramework(self.data.t)

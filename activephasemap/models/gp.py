@@ -17,31 +17,34 @@ from gpytorch.priors import GammaPrior
 from torch import Tensor
 import pdb
 
-def fit_gp_model(model, mll, num_epochs):
-    optimizer = torch.optim.Adam(model.parameters(), lr=kwargs.pop("lr", 1e-3))
-    model.train()
-    for epoch in range(num_epochs):
-        optimizer.zero_grad()
-        output = model(*model.train_inputs)
-        loss = -mll(output, model.train_targets)
-        loss.backward()
-        if (epoch + 1) % 100 == 0:
-            print(
-                f"Epoch {epoch+1:>3}/{num_epochs} - Loss: {loss.item():>4.3f} "
-            )
-            if kwargs.pop("verbose", 1)>1:
-                for name, param in model.named_parameters():
-                    print(f"{name:>3} : value: {param.data}")
-        optimizer.step()
-
-class SingleTaskGP(Model):
-
+class GPModel(Model):
     def __init__(self, model_args, input_dim, output_dim):
-        super().__init__()
         self.gp = None
+        self.input_dim = input_dim
         self.output_dim = output_dim
-        self.nu = model_args["nu"] if "nu" in model_args else 2.5
-        self.num_epochs = model_args["num_epochs"] if "nu" in model_args else 100 
+        self.nu = model_args["nu"] if "nu" in model_args else 2.5 
+        self.num_epochs = model_args["num_epochs"] if "num_epochs" in model_args else 100 
+        self.learning_rate = model_args["learning_rate"] if "learning_rate" in model_args else 3e-4
+        self.verbose =  model_args["verbise"] if "verbose" in model_args else 1
+        super().__init__()
+
+
+    def fit_gp_model(self):
+        optimizer = torch.optim.Adam(self.gp.parameters(), lr=self.learning_rate)
+        self.gp.train()
+        for epoch in range(self.num_epochs):
+            optimizer.zero_grad()
+            output = self.gp(*self.gp.train_inputs)
+            loss = -self.mll(output, self.gp.train_targets)
+            loss.backward()
+            if (epoch + 1) % 100 == 0:
+                print(
+                    f"Epoch {epoch+1:>3}/{self.num_epochs} - Loss: {loss.item():>4.3f} "
+                )
+                if self.verbose>1:
+                    for name, param in self.gp.named_parameters():
+                        print(f"{name:>3} : value: {param.data}")
+            optimizer.step()    
 
     def posterior(
         self,
@@ -61,6 +64,11 @@ class SingleTaskGP(Model):
     @property
     def num_outputs(self) -> int:
         return self.gp.num_outputs
+
+class SingleTaskGP(GPModel):
+
+    def __init__(self, model_args, input_dim, output_dim):
+        super().__init__(model_args, input_dim, output_dim)
 
     def fit_and_save(self, train_x, train_y):
         if self.output_dim > 1:
@@ -80,33 +88,11 @@ class SingleTaskGP(Model):
         return K
 
 
-class MultiTaskGP(Model):
+class MultiTaskGP(GPModel):
 
     def __init__(self, model_args, input_dim, output_dim):
-        super().__init__()
-        self.gp = None
-        self.output_dim = output_dim
-        self.nu = model_args["nu"] if "nu" in model_args else 2.5 
-        self.num_epochs = model_args["num_epochs"] if "nu" in model_args else 100 
+        super().__init__(model_args, input_dim, output_dim)
 
-    def posterior(
-        self,
-        X: Tensor,
-        output_indices: Optional[List[int]] = None,
-        observation_noise: bool = False,
-        posterior_transform: Optional[Callable[[Posterior], Posterior]] = None,
-        **kwargs: Any,
-    ) -> Posterior:
-        return self.gp.posterior(X, output_indices, observation_noise, posterior_transform, **kwargs)
-
-    @property
-    def batch_shape(self) -> torch.Size:
-        return self.gp.batch_shape
-
-    @property
-    def num_outputs(self) -> int:
-        return self.gp.num_outputs
-        
     def fit_and_save(self, train_x, train_y):
         models = []
         for d in range(self.output_dim):
@@ -118,7 +104,7 @@ class MultiTaskGP(Model):
 
         self.gp = ModelListGP(*models)
         self.mll = SumMarginalLogLikelihood(self.gp.likelihood, self.gp).to(train_x)
-        fit_gp_model(self.gp, self.mll, self.num_epochs) 
+        self.fit_gp_model() 
          
     def get_covaraince(self, x, xp):  
         cov = torch.zeros((1,len(xp))).to(xp)
