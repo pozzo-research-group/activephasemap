@@ -159,8 +159,8 @@ class GNPPhases:
         AA_x = comps[:,1]*0.00630/350*10**4
         self.points = np.hstack((AG_x.reshape(-1,1), AA_x.reshape(-1,1)))
         self.wl = self.spectra_files[0]['Wavelength'].values.astype('double')
-        wl_ = np.linspace(min(self.wl), max(self.wl), num=100)
-        self.t = (wl_-min(wl_))/(max(wl_)-min(wl_))
+        self.wl_ = np.linspace(min(self.wl), max(self.wl), num=100)
+        self.t = (self.wl_-min(self.wl_))/(max(self.wl_)-min(self.wl_))
         self.n_domain = len(self.t)
         
     def simulate(self, c):
@@ -233,14 +233,21 @@ class PeptideGNPPhases:
 
 
 class PhaseMappingExperiment:
-    def __init__(self, iter, dir, bounds):
+    """Experiment class to facilatate interaction between activephasemap and experimental data
+
+    For UV-Vis Spectrascopy, the data directory should contain 
+        1. comps_x.npy - compositions in (num_comps x dim) shaped numpy array (.npy)
+        2. spectra_x.xlsx - spectra in a excel file with rows corresponds to the composition (.xlsx)
+        3. wav.npy - wavelength vector in (num_wavelengths x ) shaped numpy array (.npy)
+    """
+    def __init__(self, iter, dir):
         self.dir = dir 
         comps, spectra = [], []
-        for k in range(iter+1):
+        for k in range(iter):
             comps.append(np.load(self.dir+'comps_%d.npy'%k))
             xlsx = pd.read_excel(self.dir+'spectra_%d.xlsx'%k, engine='openpyxl') 
             spectra.append(xlsx.values)
-            print('Iteration %d : '%k, comps[k].shape, spectra[k].shape)
+            print('Loading data from iteration %d with shapes:'%k, comps[k].shape, spectra[k].shape)
         self.comps = np.vstack(comps)
         self.points = self.comps
         _spectra = np.vstack(spectra)

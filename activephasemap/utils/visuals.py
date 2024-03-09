@@ -48,8 +48,9 @@ def plot_gpmodel_grid(ax, test_function, gp_model, np_model,num_grid_spacing=10,
     c2 = np.linspace(bounds[0,1], bounds[1,1], num=num_grid_spacing)
     scaler_x = MinMaxScaler(bounds[0,0], bounds[1,0])
     scaler_y = MinMaxScaler(bounds[0,1], bounds[1,1])
-    # ax.xaxis.set_major_formatter(lambda x, pos : scaled_tickformat(scaler_x, x, pos))
-    # ax.yaxis.set_major_formatter(lambda y, pos : scaled_tickformat(scaler_y, y, pos))
+    if kwargs.pop("scale_axis", False):
+        ax.xaxis.set_major_formatter(lambda x, pos : scaled_tickformat(scaler_x, x, pos))
+        ax.yaxis.set_major_formatter(lambda y, pos : scaled_tickformat(scaler_y, y, pos))
     with torch.no_grad():
         for i in range(num_grid_spacing):
             for j in range(num_grid_spacing):
