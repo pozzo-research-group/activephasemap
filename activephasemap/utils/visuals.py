@@ -1,18 +1,19 @@
-import torch 
+import os, sys, time, shutil, pdb
 import numpy as np 
 from scipy import stats
+RNG = np.random.default_rng()
+
 import seaborn as sns 
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib import colormaps 
 from matplotlib.cm import ScalarMappable
-RNG = np.random.default_rng()
-from activephasemap.np.utils import context_target_split 
-from botorch.utils.transforms import normalize, unnormalize
-from activephasemap.utils.settings import from_comp_to_spectrum, get_twod_grid
-import pdb
 
+import torch 
+from botorch.utils.transforms import normalize, unnormalize
+from activephasemap.np.utils import context_target_split 
+from activephasemap.utils.settings import from_comp_to_spectrum, get_twod_grid
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # plot samples in the composition grid of p(y|c)
@@ -48,7 +49,7 @@ def plot_gpmodel_grid(ax, test_function, gp_model, np_model,num_grid_spacing=10,
     c2 = np.linspace(bounds[0,1], bounds[1,1], num=num_grid_spacing)
     scaler_x = MinMaxScaler(bounds[0,0], bounds[1,0])
     scaler_y = MinMaxScaler(bounds[0,1], bounds[1,1])
-    if kwargs.pop("scale_axis", False):
+    if kwargs.pop("scale_axis", True):
         ax.xaxis.set_major_formatter(lambda x, pos : scaled_tickformat(scaler_x, x, pos))
         ax.yaxis.set_major_formatter(lambda y, pos : scaled_tickformat(scaler_y, y, pos))
     with torch.no_grad():
@@ -95,6 +96,8 @@ def plot_iteration(query_idx, test_function, train_x, gp_model, np_model, acquis
     axs['A1'].set_xlabel('C1', fontsize=20)
     axs['A1'].set_ylabel('C2', fontsize=20)    
     axs['A1'].set_title('C sampling')
+    axs['A1'].set_xlim([test_function.bounds[0,0], test_function.bounds[1,0]])
+    axs['A1'].set_ylim([test_function.bounds[0,1], test_function.bounds[1,1]])
 
     # plot acqf
     normalized_C_grid = normalize(torch.tensor(C_grid).to(train_x), test_function.bounds.to(train_x))
@@ -134,7 +137,7 @@ def plot_iteration(query_idx, test_function, train_x, gp_model, np_model, acquis
 
     plot_gpmodel_grid(axs['C'], test_function, gp_model, np_model, show_sigma=False)
 
-    return 
+    return fig, axs
 
 def plot_gpmodel(test_function, gp_model, np_model, fname):
     # plot comp to z model predictions and the GP covariance
@@ -330,3 +333,17 @@ def plot_autophasemap(pbp, fname):
 
     return 
     
+def plot_model_accuracy(direc, gp_model, np_model, test_function):
+    """ Plot accuract of model predictions of experimental data
+
+    """
+    num_samples, c_dim = test_function.sim.comps.shape
+    if os.path.exists(direc+'preds/'):
+        shutil.rmtree(direc+'preds/')
+    os.makedirs(direc+'preds/')
+    for i in range(num_samples):
+        fig, ax = plt.subplots()
+        ci = test_function.sim.comps[i,:].reshape(1, c_dim)
+        plot_gpmodel_recon(ax, gp_model, np_model, test_function, ci)
+        ax.scatter(test_function.sim.t, test_function.sim.F[i], color='k')
+        plt.savefig(direc+'preds/%d.png'%(i))
