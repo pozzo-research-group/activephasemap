@@ -213,7 +213,7 @@ def plot_gpmodel_recon(ax, gp_model, np_model, test_function, c):
         sigma_ = sigma.cpu().squeeze()
         ax.plot(test_function.sim.t, mu_, label="GP pred.")
         ax.fill_between(test_function.sim.t,mu_-sigma_,mu_+sigma_,
-        alpha=0.2, color='grey', label="GP Unc.")
+        color='grey', label="GP Unc.")
 
     return 
 
@@ -347,3 +347,4 @@ def plot_model_accuracy(direc, gp_model, np_model, test_function):
         plot_gpmodel_recon(ax, gp_model, np_model, test_function, ci)
         ax.scatter(test_function.sim.t, test_function.sim.F[i], color='k')
         plt.savefig(direc+'preds/%d.png'%(i))
+        plt.close()

@@ -13,4 +13,4 @@ pip install botorch
 pip install matplotlib pandas openpyxl seaborn
 ```
 
-3. Install autophasemap following instructions [here](https://github.com/pozzo-research-group/papers/blob/main/autophasemap/INSTALL.md)
+3. Install autophasemap following instructions [here](https://github.com/pozzo-research-group/autophasemap)
