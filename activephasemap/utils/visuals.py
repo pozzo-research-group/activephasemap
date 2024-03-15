@@ -91,7 +91,10 @@ def plot_iteration(query_idx, test_function, train_x, gp_model, np_model, acquis
     C_grid = get_twod_grid(20, test_function.bounds.cpu().numpy())
     fig, axs = plt.subplot_mosaic(layout, figsize=(4*4, 4*2))
     fig.subplots_adjust(wspace=0.5, hspace=0.5)
-    x_ = train_x.cpu().numpy()
+    if torch.is_tensor(train_x):
+        x_ = train_x.cpu().numpy()
+    else:
+        x_ = train_x
     axs['A1'].scatter(x_[:,0], x_[:,1], marker='x', color='k')
     axs['A1'].set_xlabel('C1', fontsize=20)
     axs['A1'].set_ylabel('C2', fontsize=20)    
@@ -100,7 +103,7 @@ def plot_iteration(query_idx, test_function, train_x, gp_model, np_model, acquis
     axs['A1'].set_ylim([test_function.bounds[0,1], test_function.bounds[1,1]])
 
     # plot acqf
-    normalized_C_grid = normalize(torch.tensor(C_grid).to(train_x), test_function.bounds.to(train_x))
+    normalized_C_grid = normalize(torch.tensor(C_grid).to(device), test_function.bounds.to(device))
     with torch.no_grad():
         acq_values = acquisition(normalized_C_grid.reshape(len(C_grid),1,2)).cpu().numpy()
     cmap = colormaps["magma"]

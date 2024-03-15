@@ -39,7 +39,7 @@ def update_npmodel(time, np_model, data, **kwargs):
     trainer = NeuralProcessTrainer(device, np_model, optimizer,
     num_context_range=(num_context, num_context),
     num_extra_target_range=(num_target, num_target),
-    print_freq=1000
+    print_freq=kwargs.get('print_freq',  10)
     )
 
     np_model.training = True
