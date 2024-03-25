@@ -60,7 +60,7 @@ class NeuralProcessTrainer():
             Number of epochs to train for.
         """
         x_plot = kwargs.get('x_plot', None)
-        plot_after = kwargs.get('plot_after', 10)
+        plot_epoch = kwargs.get('plot_epoch', 10)
         savedir = kwargs.get('savedir', './')
         for epoch in range(epochs):
             epoch_loss = 0.
@@ -108,8 +108,9 @@ class NeuralProcessTrainer():
                     print("iteration {}, loss {:.3f}".format(self.steps, loss.item()))
 
             self.epoch_loss_history.append(epoch_loss / len(data_loader))
+            print('Epoch %d Loss %.3f'%(epoch, self.epoch_loss_history[-1]))
             if x_plot is not None:
-                if epoch % plot_after == 0:
+                if (epoch) % plot_epoch == 0:
                     print('Plotting at %d'%epoch)
                     self.plot_samples(x_plot)
                     plt.savefig(savedir+'%d.png'%epoch)
@@ -118,9 +119,9 @@ class NeuralProcessTrainer():
     def plot_samples(self, x_plot):
         fig, ax = plt.subplots()
         with torch.no_grad():
+            z_sample = torch.randn((100, self.neural_process.z_dim)).to(x_plot)
             for i in range(100):
-                z_sample = torch.randn((1, self.neural_process.z_dim)).to(x_plot)
-                mu, _ = self.neural_process.xz_to_y(x_plot, z_sample)
+                mu, _ = self.neural_process.xz_to_y(x_plot, z_sample[i,:])
                 ax.plot(x_plot.cpu().numpy()[0], mu.cpu().numpy()[0], 
                         c='b', alpha=0.5)
                 ax.set_title("Loss: %.3f"%self.epoch_loss_history[-1])

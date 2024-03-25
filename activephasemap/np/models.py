@@ -110,19 +110,12 @@ class Decoder(nn.Module):
         self.h_dim = h_dim
         self.y_dim = y_dim
 
-        # layers = [nn.Linear(x_dim + z_dim, h_dim),
-        #           nn.ReLU(inplace=True),
-        #           nn.Linear(h_dim, h_dim),
-        #           nn.ReLU(inplace=True),
-        #           nn.Linear(h_dim, h_dim),
-        #           nn.ReLU(inplace=True)]
-
         layers = [nn.Linear(x_dim + z_dim, h_dim),
-                  nn.Sigmoid(),
+                  nn.ReLU(inplace=True),
                   nn.Linear(h_dim, h_dim),
-                  nn.Sigmoid(),
+                  nn.ReLU(inplace=True),
                   nn.Linear(h_dim, h_dim),
-                  nn.Sigmoid()]
+                  nn.ReLU(inplace=True)]
 
         self.xz_to_hidden = nn.Sequential(*layers)
         self.hidden_to_mu = nn.Linear(h_dim, y_dim)
