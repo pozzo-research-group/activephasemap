@@ -29,7 +29,7 @@ def initialize_model(model_name, model_args, input_dim, output_dim, device):
         raise NotImplementedError("Model type %s does not exist" % model_name)
 
 
-def initialize_points(bounds, n_init_points, output_dim, device):
+def initialize_points(bounds, n_init_points, device):
     if n_init_points < 1:
         init_x = torch.zeros(1, 1).to(device)
     else:

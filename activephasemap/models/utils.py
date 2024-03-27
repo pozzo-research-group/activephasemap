@@ -1,109 +1,83 @@
-"""Likelihoods, priors, and RegNet."""
-
-import math
-import torch
-from torch.nn import functional as F
+import torch 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+torch.set_default_dtype(torch.double)
+from torch.utils.data import DataLoader, Dataset
 import numpy as np
+from activephasemap.np.neural_process import NeuralProcess
+from activephasemap.np.training import NeuralProcessTrainer
+from activephasemap.np.utils import context_target_split
 
+def update_anp(x, y, model, **kwargs):
+  learning_rate = kwargs.pop("lr", 1e-4)
+  num_iterations = kwargs.pop("num_iterations", 1000)
+  max_num_context = kwargs.pop("max_num_context", 50)
+  optim = torch.optim.Adam(model.parameters(), lr=learning_rate)
+  x.to(device)
+  y.to(device)
 
-def make_gaussian_log_prior(weight_decay, temperature):
-  """Returns the Gaussian log-density and delta given weight decay."""
+  train_loss = []
+  for itr in range(num_iterations):
+    model.train()
+    num_context = int(np.random.rand()*(self.max_num_context - 3) + 3)
+    num_target = int(np.random.rand()*(self.max_num_context - num_context))
+    num_total_points = x.shape[1]
+    idx = torch.randperm(num_total_points)
+    target_x = x[:, idx[:num_target + num_context],:]
+    target_y = y[:, idx[:num_target + num_context],:]
+    context_x = x[:, idx[:num_context]]
+    context_y = y[:, idx[:num_context]]
 
-  def log_prior(params):
-    """Computes the Gaussian prior log-density."""
-    params = list(params)
-    n_params = sum([p.numel() for p in params])
-    param_normsq = sum([(p**2).sum() for p in params])
-    log_prob = -(0.5 * param_normsq * weight_decay +
-                 0.5 * n_params * np.log(weight_decay / (2 * math.pi)))
-    return log_prob / temperature
+    optim.zero_grad()
+    dist, log_likelihood, kl_loss, loss = model(context_x, context_y, target_x, target_y)
+    loss.backward()
+    optim.step()
+    title = "Iteration %d, loss : %.4f"%(itr, loss.item())
+    print(title)
+    train_loss.append(loss.item())
 
-  def log_prior_diff(params1, params2):
-    """Computes the delta in  Gaussian prior log-density."""
-    diff = sum([(p1 ** 2 - p2 ** 2).sum() for p1, p2 in
-                zip(params1, params2)])
-    return -0.5 * weight_decay * diff / temperature
+  return model, train_loss
 
-  return log_prior, log_prior_diff
+class NPModelDataset(Dataset):
+    def __init__(self, time, y):
+        self.data = []
+        for yi in y:
+            xi = torch.from_numpy(time).to(device)
+            xi = xi.view(xi.shape[0],1).to(device)
+            yi = yi.view(yi.shape[0],1).to(device)
+            self.data.append((xi,yi))
 
+    def __getitem__(self, index):
+        return self.data[index]
 
-def preprocess_network_outputs_gaussian(predictions):
-  """Apply softplus to std output.
+    def __len__(self):
+        return len(self.data)
 
-  Returns predictive mean and standard deviation.
-  """
-  num_dims = int(predictions.shape[-1] / 2)
-  predictions_mean, predictions_std = torch.split(predictions, [num_dims, num_dims], dim=-1)
-  predictions_std = F.softplus(predictions_std)
-  return predictions_mean, predictions_std
+def update_np(time, np_model, data, **kwargs):
+    batch_size = kwargs.get('batch_size',  2)
+    num_context = kwargs.get('num_context',  25)
+    num_target = kwargs.get('num_target',  25)
+    num_iterations = kwargs.get('num_iterations',  30)
+    # print('func:update_npmodel: input spectra shape :', data.y.shape)
+    dataset = NPModelDataset(time, data.y)
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+    for name, param in np_model.named_parameters():
+        if 'hidden_to' in name:
+            param.requires_grad = False
+        elif 'r_to_hidden' in name:
+            param.requires_grad = False   
+    optimizer = torch.optim.Adam(np_model.parameters(), lr=kwargs.get('lr',  1e-3))
+    trainer = NeuralProcessTrainer(device, np_model, optimizer,
+    num_context_range=(num_context, num_context),
+    num_extra_target_range=(num_target, num_target),
+    print_freq=kwargs.get('print_freq',  10)
+    )
 
+    np_model.training = True
+    trainer.train(data_loader, num_iterations, verbose = kwargs.get("verbose", False))
+    loss = trainer.epoch_loss_history[-1]
+    print('func:update_npmodel: NP model loss : %.2f'%loss)
 
-def make_gaussian_log_likelihood(temperature):
-  def gaussian_log_likelihood(model, x, y, batch_size=None):
-    """Computes the negative log-likelihood.
+    # freeze model training
+    np_model.training = False
 
-    The outputs of the network should be two-dimensional.
-    The first output is treated as predictive mean. The second output is treated
-    as inverse-softplus of the predictive standard deviation.
-    """
-    if batch_size is not None:
-      indices = torch.randint(len(x), (batch_size,))
-      x = x[indices]
-      y = y[indices]
-    predictions = model(x)
-    predictions_mean, predictions_std = (
-        preprocess_network_outputs_gaussian(predictions))
-    tempered_std = torch.clamp_min(predictions_std * np.sqrt(temperature), 1e-10)
-    se = (predictions_mean - y) ** 2
-    log_likelihood = (-0.5 * se / tempered_std ** 2
-                      - 0.5 * torch.log(tempered_std ** 2 * 2 * math.pi))
-    log_likelihood = log_likelihood.sum()
-
-    return log_likelihood
-
-  return gaussian_log_likelihood
-
-
-def make_gaussian_log_likelihood_fixed_noise(temperature, noise):
-  def gaussian_log_likelihood(model, x, y, batch_size=None):
-    """Computes the negative log-likelihood.
-
-    The outputs of the network should be two-dimensional.
-    The first output is treated as predictive mean. The second output is treated
-    as inverse-softplus of the predictive standard deviation.
-    """
-    if batch_size is not None:
-      indices = torch.randint(len(x), (batch_size,))
-      x = x[indices]
-      y = y[indices]
-    predictions_mean = model(x)
-    predictions_std = noise
-    # predictions_mean, predictions_std = (
-    #     preprocess_network_outputs_gaussian(predictions))
-    tempered_std = predictions_std * np.sqrt(temperature)
-    se = (predictions_mean - y) ** 2
-    log_likelihood = (-0.5 * se / tempered_std ** 2
-                      - 0.5 * torch.log(tempered_std ** 2 * 2 * math.pi))
-    log_likelihood = log_likelihood.sum()
-
-    return log_likelihood
-
-  return gaussian_log_likelihood
-
-
-class RegNet(torch.nn.Sequential):
-    def __init__(self, dimensions, activation, input_dim=1, output_dim=1,
-                        dtype=torch.float64, device="cpu"):
-        super(RegNet, self).__init__()
-        self.dimensions = [input_dim, *dimensions, output_dim]
-        for i in range(len(self.dimensions) - 1):
-            self.add_module('linear%d' % i, torch.nn.Linear(
-                self.dimensions[i], self.dimensions[i + 1], dtype=dtype, device=device)
-            )
-            if i < len(self.dimensions) - 2:
-                if activation == "tanh":
-                    self.add_module('tanh%d' % i, torch.nn.Tanh())
-                elif activation == "relu":
-                    self.add_module('relu%d' % i, torch.nn.ReLU())
-                else:
-                    raise NotImplementedError("Activation type %s is not supported" % activation)
+    return np_model, loss 

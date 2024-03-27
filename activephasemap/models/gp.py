@@ -32,11 +32,13 @@ class GPModel(Model):
     def fit_gp_model(self):
         optimizer = torch.optim.Adam(self.gp.parameters(), lr=self.learning_rate)
         self.gp.train()
+        train_loss = []
         for epoch in range(self.num_epochs):
             optimizer.zero_grad()
             output = self.gp(*self.gp.train_inputs)
             loss = -self.mll(output, self.gp.train_targets)
             loss.backward()
+            train_loss.append(loss.item())
             if (epoch + 1) % 100 == 0:
                 print(
                     f"Epoch {epoch+1:>3}/{self.num_epochs} - Loss: {loss.item():>4.3f} "
@@ -45,6 +47,8 @@ class GPModel(Model):
                     for name, param in self.gp.named_parameters():
                         print(f"{name:>3} : value: {param.data}")
             optimizer.step()    
+
+        return train_loss
 
     def posterior(
         self,
