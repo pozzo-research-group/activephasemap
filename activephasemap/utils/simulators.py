@@ -298,8 +298,9 @@ class UVVisExperiment:
 
     def generate(self, use_spline=False):
         if use_spline:
-            self.F = [self.spline_interpolate(self.spectra[i,:]) for i in range(len(self.comps))]
-            self.t = np.linspace(0,1,100)
+            wl_ = np.linspace(min(self.wav), max(self.wav), num=100)
+            self.F = [self.spline_interpolate(wl_, self.spectra[i,:]) for i in range(len(self.comps))]
+            self.t = (wl_ - min(wl_))/(max(wl_) - min(wl_))
         else:
             self.F = [self.normalize(self.spectra[i,:]) for i in range(len(self.comps))]
             self.t = (self.wav - min(self.wav))/(max(self.wav) - min(self.wav))
@@ -337,9 +338,8 @@ class UVVisExperiment:
         
         return 
 
-    def spline_interpolate(self, y):
+    def spline_interpolate(self, wl_, y):
         spline = interpolate.splrep(self.wav, y, s=0)
-        wl_ = np.linspace(min(self.wav), max(self.wav), num=100)
         I_grid = interpolate.splev(wl_, spline, der=0)
 
         return I_grid
