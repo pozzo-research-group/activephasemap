@@ -25,7 +25,7 @@ class GPModel(Model):
         self.nu = model_args["nu"] if "nu" in model_args else 2.5 
         self.num_epochs = model_args["num_epochs"] if "num_epochs" in model_args else 100 
         self.learning_rate = model_args["learning_rate"] if "learning_rate" in model_args else 3e-4
-        self.verbose =  model_args["verbise"] if "verbose" in model_args else 1
+        self.verbose =  model_args["verbose"] if "verbose" in model_args else 1
         super().__init__()
 
 
@@ -97,7 +97,7 @@ class MultiTaskGP(GPModel):
     def __init__(self, model_args, input_dim, output_dim):
         super().__init__(model_args, input_dim, output_dim)
 
-    def fit_and_save(self, train_x, train_y):
+    def fit(self, train_x, train_y):
         models = []
         for d in range(self.output_dim):
             models.append(

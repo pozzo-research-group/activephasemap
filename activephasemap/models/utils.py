@@ -82,4 +82,4 @@ def update_np(time, np_model, data, **kwargs):
     # freeze model training
     np_model.training = False
 
-    return np_model, loss 
+    return np_model, trainer.epoch_loss_history 

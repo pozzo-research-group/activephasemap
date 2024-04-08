@@ -14,19 +14,19 @@ from torch.utils.data import Dataset
 import numpy as np
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def initialize_model(model_name, model_args, input_dim, output_dim, device):
-    if model_name == 'gp':
+def initialize_model(model_args, input_dim, output_dim, device):
+    if model_args["model"] == 'gp':
         if output_dim == 1:
             return SingleTaskGP(model_args, input_dim, output_dim)
         else:
             return MultiTaskGP(model_args, input_dim, output_dim)
-    elif model_name == 'dkl':
+    elif model_args["model"] == 'dkl':
         if output_dim == 1:
             return SingleTaskDKL(model_args, input_dim, output_dim, device)
         else:
             return MultiTaskDKL(model_args, input_dim, output_dim, device)
     else:
-        raise NotImplementedError("Model type %s does not exist" % model_name)
+        raise NotImplementedError("Model type %s does not exist" % model_args["model"])
 
 
 def initialize_points(bounds, n_init_points, device):

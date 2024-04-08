@@ -88,7 +88,8 @@ def plot_iteration(query_idx, test_function, train_x, gp_model, np_model, acquis
     
     # plot selected points
     C_train = test_function.sim.points
-    C_grid = get_twod_grid(20, test_function.bounds.cpu().numpy())
+    bounds =  test_function.bounds.cpu().numpy()
+    C_grid = get_twod_grid(20, bounds)
     fig, axs = plt.subplot_mosaic(layout, figsize=(4*4, 4*2))
     fig.subplots_adjust(wspace=0.5, hspace=0.5)
     if torch.is_tensor(train_x):
@@ -99,8 +100,8 @@ def plot_iteration(query_idx, test_function, train_x, gp_model, np_model, acquis
     axs['A1'].set_xlabel('C1', fontsize=20)
     axs['A1'].set_ylabel('C2', fontsize=20)    
     axs['A1'].set_title('C sampling')
-    axs['A1'].set_xlim([test_function.bounds[0,0], test_function.bounds[1,0]])
-    axs['A1'].set_ylim([test_function.bounds[0,1], test_function.bounds[1,1]])
+    axs['A1'].set_xlim([bounds[0,0], bounds[1,0]])
+    axs['A1'].set_ylim([bounds[0,1], bounds[1,1]])
 
     # plot acqf
     normalized_C_grid = normalize(torch.tensor(C_grid).to(device), test_function.bounds.to(device))

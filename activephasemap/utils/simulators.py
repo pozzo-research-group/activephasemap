@@ -341,6 +341,5 @@ class UVVisExperiment:
         spline = interpolate.splrep(self.wav, y, s=0)
         wl_ = np.linspace(min(self.wav), max(self.wav), num=100)
         I_grid = interpolate.splev(wl_, spline, der=0)
-        norm = np.sqrt(np.trapz(I_grid**2, wl_)) 
 
-        return I_grid/norm
+        return I_grid
