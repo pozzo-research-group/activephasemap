@@ -14,6 +14,8 @@ from torch.utils.data import Dataset
 import numpy as np
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+from autophasemap import BaseDataSet
+
 def initialize_model(model_args, input_dim, output_dim, device):
     if model_args["model"] == 'gp':
         if output_dim == 1:
@@ -105,4 +107,24 @@ def get_twod_grid(n_grid, bounds):
     X,Y = np.meshgrid(x,y)
     points = np.vstack([X.ravel(), Y.ravel()]).T 
 
-    return points
+    return points 
+
+# Define a autophasemap dataset object
+class AutoPhaseMapDataSet(BaseDataSet):
+    def __init__(self, C, q, Iq, n_domain = 100):
+        super().__init__(n_domain=n_domain)
+        self.t = np.linspace(0,1, num=self.n_domain)
+        self.q = q
+        self.N = C.shape[0]
+        self.Iq = Iq
+        self.C = C
+    
+    def generate(self, process=None):
+        if process=="normalize":
+            self.F = [self.Iq[i,:]/self.l2norm(self.q, self.Iq[i,:]) for i in range(self.N)]
+        elif process=="smoothen":
+            self.F = [self._smoothen(self.Iq[i,:]/self.l2norm(self.q, self.Iq[i,:]), window_length=7, polyorder=3) for i in range(self.N)]
+        elif process is None:
+            self.F = [self.Iq[i,:] for i in range(self.N)]
+            
+        return
