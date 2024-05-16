@@ -14,8 +14,6 @@ from torch.utils.data import Dataset
 import numpy as np
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-from autophasemap import BaseDataSet
-
 def initialize_model(model_args, input_dim, output_dim, device):
     if model_args["model"] == 'gp':
         if output_dim == 1:

@@ -1,9 +1,8 @@
 from typing import Any, Callable, List, Optional
+import abc 
 
 import botorch
 import torch
-from botorch.fit import fit_gpytorch_mll 
-from botorch.optim.fit import fit_gpytorch_mll_torch
 from botorch.models.model import Model
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.outcome import Standardize
@@ -28,8 +27,7 @@ class GPModel(Model):
         self.verbose =  model_args["verbose"] if "verbose" in model_args else 1
         super().__init__()
 
-
-    def fit_gp_model(self):
+    def fit(self):
         optimizer = torch.optim.Adam(self.gp.parameters(), lr=self.learning_rate)
         self.gp.train()
         train_loss = []
@@ -68,22 +66,22 @@ class GPModel(Model):
     @property
     def num_outputs(self) -> int:
         return self.gp.num_outputs
+    
+    @abc.abstractmethod
+    def get_covaraince(self, x, xp):
+        pass
 
 class SingleTaskGP(GPModel):
 
     def __init__(self, model_args, input_dim, output_dim):
         super().__init__(model_args, input_dim, output_dim)
-
-    def fit_and_save(self, train_x, train_y):
         if self.output_dim > 1:
-            raise RuntimeError(
-                "SingleTaskGP does not fit tasks with multiple objectives")
+            raise RuntimeError("SingleTaskGP does not fit tasks with multiple objectives")
 
         self.gp = botorch.models.SingleTaskGP(
             train_x, train_y, outcome_transform=Standardize(m=1)).to(train_x)
         mll = ExactMarginalLogLikelihood(
             self.gp.likelihood, self.gp).to(train_x)
-        fit_gpytorch_mll_torch(mll)
 
     def get_covaraince(self, x, xp):
         cov = self.gp.covar_module(x, xp).to_dense()
@@ -96,8 +94,6 @@ class MultiTaskGP(GPModel):
 
     def __init__(self, model_args, input_dim, output_dim):
         super().__init__(model_args, input_dim, output_dim)
-
-    def fit(self, train_x, train_y):
         models = []
         for d in range(self.output_dim):
             models.append(
@@ -108,9 +104,6 @@ class MultiTaskGP(GPModel):
 
         self.gp = ModelListGP(*models)
         self.mll = SumMarginalLogLikelihood(self.gp.likelihood, self.gp).to(train_x)
-        loss = self.fit_gp_model() 
-
-        return loss
          
     def get_covaraince(self, x, xp):  
         cov = torch.zeros((1,len(xp))).to(xp)

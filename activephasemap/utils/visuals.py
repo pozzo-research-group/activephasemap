@@ -313,30 +313,6 @@ def plot_gpmodel_expt(test_function, gp_model, np_model, fname):
         plt.close()        
     return 
 
-def plot_autophasemap(pbp, fname):
-    scaler_x = MinMaxScaler(pbp.bounds[0,0], pbp.bounds[1,0])
-    scaler_y = MinMaxScaler(pbp.bounds[0,1], pbp.bounds[1,1])
-
-    fig, axs = plt.subplots(1,2, figsize=(2*4, 4))
-    fig.subplots_adjust(wspace=0.5)
-    axs[0].plot(pbp.sweep_n_clusters, pbp.BIC, marker='o')
-    axs[0].axvline(x = pbp.min_bic_clusters, ls='--', color='tab:red')
-
-    ax = axs[1]
-    cmap = plt.get_cmap("tab10") 
-    ax.xaxis.set_major_formatter(lambda x, pos : scaled_tickformat(scaler_x, x, pos))
-    ax.yaxis.set_major_formatter(lambda y, pos : scaled_tickformat(scaler_y, y, pos))
-    for i in range(pbp.grid_comps.shape[0]):
-        ci = np.array([scaler_x.transform(pbp.grid_comps[i,0]), scaler_y.transform(pbp.grid_comps[i,1])])
-        _inset_spectra(ci, pbp.test_function.sim.t, pbp.grid_spectra[i,:], [], ax, 
-        color=cmap(pbp.out.delta_n[i]))
-    ax.set_xlabel('C1', fontsize=20)
-    ax.set_ylabel('C2', fontsize=20)    
-    plt.savefig(fname)
-    plt.close() 
-
-    return 
-    
 def plot_model_accuracy(direc, gp_model, np_model, test_function):
     """ Plot accuract of model predictions of experimental data
 

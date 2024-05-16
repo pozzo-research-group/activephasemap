@@ -9,36 +9,6 @@ from activephasemap.np.utils import context_target_split
 
 import pdb
 
-def update_anp(x, y, model, **kwargs):
-  learning_rate = kwargs.pop("lr", 1e-4)
-  num_iterations = kwargs.pop("num_iterations", 1000)
-  max_num_context = kwargs.pop("max_num_context", 50)
-  optim = torch.optim.Adam(model.parameters(), lr=learning_rate)
-  xt = torch.from_numpy(x).to(device).repeat(5,1,1).permute(0,2,1)
-  yt = torch.from_numpy(y).to(device).unsqueeze(2)
-
-  train_loss = []
-  for itr in range(num_iterations):
-    model.train()
-    num_context = int(np.random.rand()*(max_num_context - 3) + 3)
-    num_target = int(np.random.rand()*(max_num_context - num_context))
-    num_total_points = xt.shape[0]
-    idx = torch.randperm(num_total_points)
-    target_x = xt[:, idx[:num_target + num_context],:]
-    target_y = yt[:, idx[:num_target + num_context],:]
-    context_x = xt[:, idx[:num_context]]
-    context_y = yt[:, idx[:num_context]]
-
-    optim.zero_grad()
-    dist, log_likelihood, kl_loss, loss = model(context_x, context_y, target_x, target_y)
-    loss.backward()
-    optim.step()
-    title = "Iteration %d, loss : %.4f"%(itr, loss.item())
-    print(title)
-    train_loss.append(loss.item())
-
-  return model, train_loss
-
 class NPModelDataset(Dataset):
     def __init__(self, time, y):
         self.data = []
