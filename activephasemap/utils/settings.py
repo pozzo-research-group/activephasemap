@@ -85,12 +85,12 @@ class ActiveLearningDataset(Dataset):
 
         return
     
-def from_comp_to_spectrum(test_function, gp_model, np_model, c):
+def from_comp_to_spectrum(expt, gp_model, np_model, c):
     with torch.no_grad():
-        t_ = test_function.sim.t
+        t_ = expt.t
         c = torch.tensor(c).to(device)
         gp_model.eval()
-        normalized_x = normalize(c, test_function.bounds.to(c))
+        normalized_x = normalize(c, expt.bounds.to(c))
         posterior = gp_model.posterior(normalized_x)  # based on https://github.com/pytorch/botorch/issues/1110
         t = torch.from_numpy(t_).to(device)
         t = t.repeat(c.shape[0]).view(c.shape[0], len(t_), 1)

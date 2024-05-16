@@ -1,11 +1,10 @@
 import numpy as np 
 import torch
-import matplotlib.pyplot as plt
 import glob
 from scipy.spatial.distance import cdist
 import pandas as pd 
 from scipy import interpolate 
-import pdb
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 from activephasemap.utils.visuals import MinMaxScaler, scaled_tickformat
 
@@ -43,7 +42,9 @@ class UVVisExperiment:
         2. spectra_x.npy - spectra in a numpy array with rows corresponds to the composition (.npy)
         3. wav.npy - wavelength vector in (num_wavelengths x ) shaped numpy array (.npy)
     """
-    def __init__(self, iter, dir):
+    def __init__(self, bounds, iter, dir):
+        self.dim = len(bounds)
+        self.bounds = torch.tensor(bounds).transpose(-1, -2).to(device)
         self.dir = dir 
         comps, spectra = [], []
         for k in range(iter):
@@ -87,7 +88,7 @@ class UVVisExperiment:
         ax.set_xlabel('C1', fontsize=20)
         ax.set_ylabel('C2', fontsize=20) 
 
-        return 
+        return ax
 
     def _inset_spectra(self, c, t, ft, ax, **kwargs):
         loc_ax = ax.transLimits.transform(c)

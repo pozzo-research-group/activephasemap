@@ -1,6 +1,5 @@
-import os, sys, time, shutil, pdb
+import os, shutil
 import numpy as np 
-from scipy import stats
 RNG = np.random.default_rng()
 
 import seaborn as sns 
@@ -11,7 +10,7 @@ from matplotlib import colormaps
 from matplotlib.cm import ScalarMappable
 
 import torch 
-from botorch.utils.transforms import normalize, unnormalize
+from botorch.utils.transforms import normalize
 from activephasemap.np.utils import context_target_split 
 from activephasemap.utils.settings import from_comp_to_spectrum, get_twod_grid
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -43,8 +42,8 @@ class MinMaxScaler:
 def scaled_tickformat(scaler, x, pos):
     return '%.1f'%scaler.inverse(x)
 
-def plot_gpmodel_grid(ax, test_function, gp_model, np_model,num_grid_spacing=10, **kwargs):
-    bounds = test_function.bounds.cpu().numpy()
+def plot_gpmodel_grid(ax, expt, gp_model, np_model,num_grid_spacing=10, **kwargs):
+    bounds = expt.bounds.cpu().numpy()
     c1 = np.linspace(bounds[0,0], bounds[1,0], num=num_grid_spacing)
     c2 = np.linspace(bounds[0,1], bounds[1,1], num=num_grid_spacing)
     scaler_x = MinMaxScaler(bounds[0,0], bounds[1,0])
@@ -56,11 +55,11 @@ def plot_gpmodel_grid(ax, test_function, gp_model, np_model,num_grid_spacing=10,
         for i in range(num_grid_spacing):
             for j in range(num_grid_spacing):
                 ci = np.array([c1[i], c2[j]]).reshape(1, 2)
-                mu, sigma = from_comp_to_spectrum(test_function, gp_model, np_model, ci)
+                mu, sigma = from_comp_to_spectrum(expt, gp_model, np_model, ci)
                 mu_ = mu.cpu().squeeze().numpy()
                 sigma_ = sigma.cpu().squeeze().numpy()
                 norm_ci = np.array([scaler_x.transform(c1[i]), scaler_y.transform(c2[j])])
-                _inset_spectra(norm_ci, test_function.sim.t, mu_, sigma_, ax, **kwargs)
+                _inset_spectra(norm_ci, expt.t, mu_, sigma_, ax, **kwargs)
     ax.set_xlabel('C1', fontsize=20)
     ax.set_ylabel('C2', fontsize=20)
 
@@ -81,14 +80,14 @@ def plot_experiment(t, bounds, data):
 
     return 
 
-def plot_iteration(query_idx, test_function, train_x, gp_model, np_model, acquisition, z_dim):
+def plot_iteration(query_idx, expt, train_x, gp_model, np_model, acquisition, z_dim):
     layout = [['A1','A2', 'C', 'C'], 
               ['B1', 'B2', 'C', 'C']
               ]
     
     # plot selected points
-    C_train = test_function.sim.points
-    bounds =  test_function.bounds.cpu().numpy()
+    C_train = expt.points
+    bounds =  expt.bounds.cpu().numpy()
     C_grid = get_twod_grid(20, bounds)
     fig, axs = plt.subplot_mosaic(layout, figsize=(4*4, 4*2))
     fig.subplots_adjust(wspace=0.5, hspace=0.5)
@@ -104,7 +103,7 @@ def plot_iteration(query_idx, test_function, train_x, gp_model, np_model, acquis
     axs['A1'].set_ylim([bounds[0,1], bounds[1,1]])
 
     # plot acqf
-    normalized_C_grid = normalize(torch.tensor(C_grid).to(device), test_function.bounds.to(device))
+    normalized_C_grid = normalize(torch.tensor(C_grid).to(device), expt.bounds.to(device))
     with torch.no_grad():
         acq_values = acquisition(normalized_C_grid.reshape(len(C_grid),1,2)).cpu().numpy()
     cmap = colormaps["magma"]
@@ -123,8 +122,8 @@ def plot_iteration(query_idx, test_function, train_x, gp_model, np_model, acquis
         for _ in range(5):
             c_dim = C_train.shape[1]
             ci = RNG.choice(C_train).reshape(1, c_dim)
-            mu, _ = from_comp_to_spectrum(test_function, gp_model, np_model, ci)
-            t_ = test_function.sim.t
+            mu, _ = from_comp_to_spectrum(expt, gp_model, np_model, ci)
+            t_ = expt.t
             axs['B2'].plot(t_, mu.cpu().squeeze(), color='grey')
             axs['B2'].set_title('random sample p(y|c)')
             axs['B2'].set_xlabel('t', fontsize=20)
@@ -139,22 +138,22 @@ def plot_iteration(query_idx, test_function, train_x, gp_model, np_model, acquis
             axs['B1'].set_xlabel('t', fontsize=20)
             axs['B1'].set_ylabel('f(t)', fontsize=20) 
 
-    plot_gpmodel_grid(axs['C'], test_function, gp_model, np_model, show_sigma=False)
+    plot_gpmodel_grid(axs['C'], expt, gp_model, np_model, show_sigma=False)
 
     return fig, axs
 
-def plot_gpmodel(test_function, gp_model, np_model, fname):
+def plot_gpmodel(expt, gp_model, np_model, fname):
     # plot comp to z model predictions and the GP covariance
     z_dim = np_model.z_dim
     fig, axs = plt.subplots(2,z_dim*2, figsize=(4*z_dim*2, 4*2))
     fig.subplots_adjust(wspace=0.5, hspace=0.5)
-    C_train = test_function.sim.points
-    y_train = np.asarray(test_function.sim.F)
-    t_ = test_function.sim.t
+    C_train = expt.points
+    y_train = np.asarray(expt.F)
+    t_ = expt.t
     n_train = len(C_train)
     with torch.no_grad():
         c = torch.tensor(C_train).to(device)
-        normalized_c = normalize(c, test_function.bounds.to(device))
+        normalized_c = normalize(c, expt.bounds.to(device))
         posterior = gp_model.posterior(normalized_c)
         z_pred = posterior.mean.cpu().numpy()
 
@@ -210,13 +209,13 @@ def plot_gpmodel(test_function, gp_model, np_model, fname):
 
 # plot phase map predition
 
-def plot_gpmodel_recon(ax, gp_model, np_model, test_function, c):
+def plot_gpmodel_recon(ax, gp_model, np_model, expt, c):
     with torch.no_grad():
-        mu, sigma = from_comp_to_spectrum(test_function, gp_model, np_model, c)
+        mu, sigma = from_comp_to_spectrum(expt, gp_model, np_model, c)
         mu_ = mu.cpu().squeeze()
         sigma_ = sigma.cpu().squeeze()
-        ax.plot(test_function.sim.t, mu_, label="GP pred.")
-        ax.fill_between(test_function.sim.t,mu_-sigma_,mu_+sigma_,
+        ax.plot(expt.t, mu_, label="GP pred.")
+        ax.fill_between(expt.t,mu_-sigma_,mu_+sigma_,
         color='grey', label="GP Unc.")
 
     return 
@@ -246,17 +245,17 @@ def plot_npmodel_recon_sample(ax, np_model, x, y):
 
     return 
 
-def plot_phasemap_pred(test_function, gp_model, np_model, fname):
-    c_dim = test_function.sim.points.shape[1]
+def plot_phasemap_pred(expt, gp_model, np_model, fname):
+    c_dim = expt.shape[1]
     with torch.no_grad():
-        idx = RNG.choice(range(len(test_function.sim.points)),size=3, replace=False)
+        idx = RNG.choice(range(len(expt.points)),size=3, replace=False)
         # plot comparision of predictions with actual
         fig, axs = plt.subplots(2,3, figsize=(4*3, 4*2))
         for i, id_ in enumerate(idx):
-            ci = test_function.sim.points[id_,:].reshape(1, c_dim)        
-            plot_gpmodel_recon(axs[0,i], gp_model, np_model, test_function, ci)
-            axs[0, i].scatter(test_function.sim.t, test_function.sim.F[id_], color='k', label="Data")
-            plot_npmodel_recon_sample(axs[1,i], np_model, test_function.sim.t, test_function.sim.F[id_])
+            ci = expt.points[id_,:].reshape(1, c_dim)        
+            plot_gpmodel_recon(axs[0,i], gp_model, np_model, expt, ci)
+            axs[0, i].scatter(expt.t, expt.F[id_], color='k', label="Data")
+            plot_npmodel_recon_sample(axs[1,i], np_model, expt.t, expt.F[id_])
             for j in [0,1]:
                 axs[j, i].legend()
         plt.savefig(fname)
@@ -264,14 +263,14 @@ def plot_phasemap_pred(test_function, gp_model, np_model, fname):
 
 
 """ Visualization tools customized for experimental campaigns """ 
-def plot_gpmodel_expt(test_function, gp_model, np_model, fname):
+def plot_gpmodel_expt(expt, gp_model, np_model, fname):
     # plot comp to z model predictions and the GP covariance
     z_dim = np_model.z_dim
     fig, axs = plt.subplots(2,z_dim, figsize=(4*z_dim, 4*2))
     fig.subplots_adjust(wspace=0.5, hspace=0.5)
-    C_train = test_function.sim.points
-    y_train = np.asarray(test_function.sim.F)
-    t_ = test_function.sim.t
+    C_train = expt.points
+    y_train = np.asarray(expt.F)
+    t_ = expt.t
     n_train = len(C_train)
     X,Y = np.meshgrid(np.linspace(min(C_train[:,0]),max(C_train[:,0]),10), 
     np.linspace(min(C_train[:,1]),max(C_train[:,1]),10))
@@ -279,7 +278,7 @@ def plot_gpmodel_expt(test_function, gp_model, np_model, fname):
     c_grid = torch.tensor(c_grid_np).to(device)    
     with torch.no_grad():
         # predict z distribution of p(z|c) approximated by GP
-        normalized_c_grid = normalize(c_grid, test_function.bounds.to(device))
+        normalized_c_grid = normalize(c_grid, expt.bounds.to(device))
         posterior = gp_model.posterior(normalized_c_grid)
         z_pred = posterior.mean.cpu().numpy() 
 
@@ -313,18 +312,18 @@ def plot_gpmodel_expt(test_function, gp_model, np_model, fname):
         plt.close()        
     return 
 
-def plot_model_accuracy(direc, gp_model, np_model, test_function):
+def plot_model_accuracy(direc, gp_model, np_model, expt):
     """ Plot accuract of model predictions of experimental data
 
     """
-    num_samples, c_dim = test_function.sim.comps.shape
+    num_samples, c_dim = expt.comps.shape
     if os.path.exists(direc+'preds/'):
         shutil.rmtree(direc+'preds/')
     os.makedirs(direc+'preds/')
     for i in range(num_samples):
         fig, ax = plt.subplots()
-        ci = test_function.sim.comps[i,:].reshape(1, c_dim)
-        plot_gpmodel_recon(ax, gp_model, np_model, test_function, ci)
-        ax.scatter(test_function.sim.t, test_function.sim.F[i], color='k')
+        ci = expt.comps[i,:].reshape(1, c_dim)
+        plot_gpmodel_recon(ax, gp_model, np_model, expt, ci)
+        ax.scatter(expt.t, expt.F[i], color='k')
         plt.savefig(direc+'preds/%d.png'%(i))
         plt.close()

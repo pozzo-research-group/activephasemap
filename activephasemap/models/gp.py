@@ -3,20 +3,14 @@ import abc
 
 import botorch
 import torch
-from botorch.models.model import Model
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.outcome import Standardize
 from botorch.posteriors import Posterior
-from gpytorch.constraints import Interval
-from gpytorch.kernels import MaternKernel, ScaleKernel
-from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
-from gpytorch.priors import GammaPrior
 from torch import Tensor
-import pdb
 
-class GPModel(Model):
+class GPModel(abc.ABC):
     def __init__(self, model_args, input_dim, output_dim):
         self.gp = None
         self.input_dim = input_dim
@@ -25,7 +19,6 @@ class GPModel(Model):
         self.num_epochs = model_args["num_epochs"] if "num_epochs" in model_args else 100 
         self.learning_rate = model_args["learning_rate"] if "learning_rate" in model_args else 3e-4
         self.verbose =  model_args["verbose"] if "verbose" in model_args else 1
-        super().__init__()
 
     def fit(self):
         optimizer = torch.optim.Adam(self.gp.parameters(), lr=self.learning_rate)
@@ -73,14 +66,14 @@ class GPModel(Model):
 
 class SingleTaskGP(GPModel):
 
-    def __init__(self, model_args, input_dim, output_dim):
+    def __init__(self, train_x, train_y, model_args, input_dim, output_dim):
         super().__init__(model_args, input_dim, output_dim)
         if self.output_dim > 1:
             raise RuntimeError("SingleTaskGP does not fit tasks with multiple objectives")
 
         self.gp = botorch.models.SingleTaskGP(
             train_x, train_y, outcome_transform=Standardize(m=1)).to(train_x)
-        mll = ExactMarginalLogLikelihood(
+        self.mll = ExactMarginalLogLikelihood(
             self.gp.likelihood, self.gp).to(train_x)
 
     def get_covaraince(self, x, xp):
@@ -92,7 +85,7 @@ class SingleTaskGP(GPModel):
 
 class MultiTaskGP(GPModel):
 
-    def __init__(self, model_args, input_dim, output_dim):
+    def __init__(self, train_x, train_y, model_args, input_dim, output_dim):
         super().__init__(model_args, input_dim, output_dim)
         models = []
         for d in range(self.output_dim):
