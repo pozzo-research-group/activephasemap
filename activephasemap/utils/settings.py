@@ -10,6 +10,7 @@ from botorch.acquisition.objective import ScalarizedPosteriorTransform
 from botorch.acquisition.acquisition import AcquisitionFunction
 from activephasemap.models.gp import SingleTaskGP, MultiTaskGP 
 from activephasemap.models.dkl import SingleTaskDKL, MultiTaskDKL
+from autophasemap import BaseDataSet
 from torch.utils.data import Dataset
 import numpy as np
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
