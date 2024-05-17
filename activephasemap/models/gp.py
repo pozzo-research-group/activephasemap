@@ -6,12 +6,14 @@ import torch
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.outcome import Standardize
 from botorch.posteriors import Posterior
+from gpytorch.models.gp import GP
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 from torch import Tensor
 
-class GPModel(abc.ABC):
+class GPModel(GP):
     def __init__(self, model_args, input_dim, output_dim):
+        super().__init__()
         self.gp = None
         self.input_dim = input_dim
         self.output_dim = output_dim

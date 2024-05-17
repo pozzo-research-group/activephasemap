@@ -1,34 +1,23 @@
 import torch
 from botorch.acquisition.monte_carlo import qUpperConfidenceBound
-from botorch.optim import optimize_acqf
 from botorch.utils.sampling import draw_sobol_samples
-from botorch.utils.transforms import normalize, unnormalize
+from botorch.utils.transforms import normalize
 from botorch.sampling.stochastic_samplers import StochasticSampler 
-from botorch.sampling.normal import SobolQMCNormalSampler 
-from botorch.sampling.qmc import NormalQMCEngine
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
-from botorch.acquisition.acquisition import AcquisitionFunction
 from activephasemap.models.gp import SingleTaskGP, MultiTaskGP 
-from activephasemap.models.dkl import SingleTaskDKL, MultiTaskDKL
 from autophasemap import BaseDataSet
 from torch.utils.data import Dataset
 import numpy as np
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def initialize_model(model_args, input_dim, output_dim, device):
+def initialize_model(train_x, train_y, model_args, input_dim, output_dim, device):
     if model_args["model"] == 'gp':
         if output_dim == 1:
-            return SingleTaskGP(model_args, input_dim, output_dim)
+            return SingleTaskGP(train_x, train_y, model_args, input_dim, output_dim)
         else:
-            return MultiTaskGP(model_args, input_dim, output_dim)
-    elif model_args["model"] == 'dkl':
-        if output_dim == 1:
-            return SingleTaskDKL(model_args, input_dim, output_dim, device)
-        else:
-            return MultiTaskDKL(model_args, input_dim, output_dim, device)
+            return MultiTaskGP(train_x, train_y, model_args, input_dim, output_dim)
     else:
         raise NotImplementedError("Model type %s does not exist" % model_args["model"])
-
 
 def initialize_points(bounds, n_init_points, device):
     if n_init_points < 1:

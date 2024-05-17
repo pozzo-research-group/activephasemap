@@ -58,11 +58,12 @@ class UVVisExperiment:
 
     def generate(self, use_spline=False):
         if use_spline:
-            wl_ = np.linspace(min(self.wav), max(self.wav), num=100)
-            self.F = [self.spline_interpolate(wl_, self.spectra[i,:]) for i in range(len(self.comps))]
-            self.t = (wl_ - min(wl_))/(max(wl_) - min(wl_))
+            self.wl = np.linspace(min(self.wav), max(self.wav), num=100)
+            self.F = [self.spline_interpolate(self.wl, self.spectra[i,:]) for i in range(len(self.comps))]
+            self.t = (self.wl - min(self.wl))/(max(self.wl) - min(self.wl))
         else:
             self.F = [self.normalize(self.spectra[i,:]) for i in range(len(self.comps))]
+            self.wl = self.wav.copy()
             self.t = (self.wav - min(self.wav))/(max(self.wav) - min(self.wav))
 
         self.n_domain = len(self.t)

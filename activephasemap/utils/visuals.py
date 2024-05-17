@@ -11,7 +11,7 @@ from matplotlib.cm import ScalarMappable
 
 import torch 
 from botorch.utils.transforms import normalize
-from activephasemap.np.utils import context_target_split 
+from activephasemap.models.np.utils import context_target_split 
 from activephasemap.utils.settings import from_comp_to_spectrum, get_twod_grid
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -214,8 +214,8 @@ def plot_gpmodel_recon(ax, gp_model, np_model, expt, c):
         mu, sigma = from_comp_to_spectrum(expt, gp_model, np_model, c)
         mu_ = mu.cpu().squeeze()
         sigma_ = sigma.cpu().squeeze()
-        ax.plot(expt.t, mu_, label="GP pred.")
-        ax.fill_between(expt.t,mu_-sigma_,mu_+sigma_,
+        ax.plot(expt.wl, mu_, label="GP pred.")
+        ax.fill_between(expt.wl,mu_-sigma_,mu_+sigma_,
         color='grey', label="GP Unc.")
 
     return 
