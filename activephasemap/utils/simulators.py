@@ -17,6 +17,7 @@ class GNPPhases:
         AA_x = comps[:,1]*0.00630/350*10**4
         self.points = np.hstack((AG_x.reshape(-1,1), AA_x.reshape(-1,1)))
         self.wl = self.spectra_files[0]['Wavelength'].values.astype('double')
+        self.t = (self.wl - min(self.wl))/(max(self.wl) - min(self.wl))
         self.n_domain = len(self.wl)
         
     def simulate(self, c):

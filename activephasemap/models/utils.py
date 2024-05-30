@@ -2,7 +2,7 @@ import torch
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_default_dtype(torch.double)
 from torch.utils.data import DataLoader, Dataset
-from activephasemap.np.training import NeuralProcessTrainer
+from activephasemap.models.np.training import NeuralProcessTrainer
 
 class NPModelDataset(Dataset):
     def __init__(self, time, y):
