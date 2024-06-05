@@ -11,7 +11,7 @@ from matplotlib.cm import ScalarMappable
 
 import torch 
 from botorch.utils.transforms import normalize
-from activephasemap.models.np.utils import context_target_split 
+from activephasemap.models.np import context_target_split 
 from activephasemap.utils.settings import from_comp_to_spectrum, get_twod_grid
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
