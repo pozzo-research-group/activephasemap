@@ -2,7 +2,7 @@ import torch
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_default_dtype(torch.double)
 from torch.utils.data import DataLoader, Dataset
-from activephasemap.models.np.training import NeuralProcessTrainer
+from activephasemap.models.np import train_neural_process
 
 class NPModelDataset(Dataset):
     def __init__(self, time, y):
@@ -18,35 +18,36 @@ class NPModelDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-def update_np(time, data,np_model, **kwargs):
-    num_domain = len(time)
-    num_context_min = 3
-    num_context_max = int((num_domain/2)-3) 
-    num_target_extra_min = int(num_domain/2) 
-    num_target_extra_max = int((num_domain/2) +3)
+def finetune_neural_process(x, y, model, **kwargs):
     batch_size = kwargs.get('batch_size',  16)
     num_iterations = kwargs.get('num_iterations',  30)
-    # print('func:update_npmodel: input spectra shape :', data.y.shape)
-    dataset = NPModelDataset(time, data)
+    dataset = NPModelDataset(x, y)
     data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-    # for name, param in np_model.named_parameters():
-    #     if 'hidden_to' in name:
-    #         param.requires_grad = False
-    #     elif 'r_to_hidden' in name:
-    #         param.requires_grad = False   
-    optimizer = torch.optim.Adam(np_model.parameters(), lr=kwargs.get('lr',  1e-3))
-    trainer = NeuralProcessTrainer(device, np_model, optimizer,
-    num_context_range=(num_context_min, num_context_max),
-    num_extra_target_range=(num_target_extra_min, num_target_extra_max),
-    print_freq=kwargs.get('print_freq',  10)
-    )
+    freeze_params, finetune_params = [], []
+    for name, param in model.named_parameters():
+        if 'hidden_to' in name:
+            param.requires_grad = False
+            # if "weight" in name:
+            #     torch.nn.init.xavier_uniform_(param)
+            finetune_params.append(param)
+        else:
+            freeze_params.append(param)
 
-    np_model.training = True
-    trainer.train(data_loader, num_iterations, verbose = kwargs.get("verbose", False))
-    loss = trainer.epoch_loss_history[-1]
-    print('func:update_npmodel: NP model loss : %.2f'%loss)
+    model.training = True
+    lr = kwargs.get('learning_rate',  1e-3)
+    optimizer = torch.optim.Adam([{'params': freeze_params, "lr":lr},
+                                  {'params': finetune_params, 'lr': lr*20}],
+                                  lr=lr
+                                )
+    epoch_loss = []
+    for epoch in range(num_iterations):
+        model, optimizer, loss_value = train_neural_process(model, data_loader,optimizer)
+
+        if epoch%kwargs.get("verbose", 1)==0:
+            print("Epoch: %d, Loss value : %2.4f"%(epoch, loss_value))
+        epoch_loss.append(loss_value)
 
     # freeze model training
-    np_model.training = False
+    model.training = False
 
-    return np_model, trainer.epoch_loss_history 
+    return model, epoch_loss

@@ -9,6 +9,7 @@ from autophasemap import BaseDataSet
 from torch.utils.data import Dataset
 import numpy as np
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+torch.set_default_dtype(torch.double)
 
 def initialize_model(train_x, train_y, model_args, input_dim, output_dim, device):
     if model_args["model"] == 'gp':
@@ -76,18 +77,30 @@ class ActiveLearningDataset(Dataset):
     
 def from_comp_to_spectrum(expt, gp_model, np_model, c):
     with torch.no_grad():
-        t_ = expt.t
         c = torch.tensor(c).to(device)
         gp_model.eval()
         normalized_x = normalize(c, expt.bounds.to(c))
         posterior = gp_model.posterior(normalized_x)  # based on https://github.com/pytorch/botorch/issues/1110
-        t = torch.from_numpy(t_).to(device)
-        t = t.repeat(c.shape[0]).view(c.shape[0], len(t_), 1)
+        t = torch.from_numpy(expt.t).to(device).reshape(1, len(expt.t), 1)
         mu = []
-        for _ in range(250):
-            mu_i, _ = np_model.xz_to_y(t, posterior.rsample().squeeze(0))
+        for _ in range(100):
+            z = posterior.rsample().squeeze(0)
+            mu_i, _ = np_model.xz_to_y(t, z)
             mu.append(mu_i)
-        return torch.cat(mu).mean(dim=0, keepdim=True), torch.cat(mu).std(dim=0, keepdim=True)
+
+        mean_pred = torch.cat(mu).mean(dim=0, keepdim=True)
+        sigma_pred = torch.cat(mu).std(dim=0, keepdim=True)
+
+        if torch.isnan(mean_pred).any():
+            raise RuntimeError("Predicted mean is nan")
+        
+        neg_pred_flags = (mean_pred<0)
+        if (mean_pred[neg_pred_flags]>0.1).any():
+            raise RuntimeError("Spectrum values are below 0 and larger than 0.1 threshold", mean_pred[neg_pred_flags])
+        else:
+            mean_pred = torch.abs(mean_pred)
+
+        return mean_pred, sigma_pred 
     
 def get_twod_grid(n_grid, bounds):
     x = np.linspace(bounds[0,0],bounds[1,0], n_grid)

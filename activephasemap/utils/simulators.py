@@ -78,17 +78,23 @@ class UVVisExperiment:
         return f/norm 
 
     def plot(self, ax, bounds):
-        bounds = np.asarray(bounds).T
-        scaler_x = MinMaxScaler(bounds[0,0], bounds[1,0])
-        scaler_y = MinMaxScaler(bounds[0,1], bounds[1,1])
-        ax.xaxis.set_major_formatter(lambda x, pos : scaled_tickformat(scaler_x, x, pos))
-        ax.yaxis.set_major_formatter(lambda y, pos : scaled_tickformat(scaler_y, y, pos))
-        t = np.linspace(0,1, self.spectra.shape[1])
-        for i, (ci, si) in enumerate(zip(self.comps, self.spectra)):
-            norm_ci = np.array([scaler_x.transform(ci[0]), scaler_y.transform(ci[1])])
-            self._inset_spectra(norm_ci,t, si, ax)
-        ax.set_xlabel('C1', fontsize=20)
-        ax.set_ylabel('C2', fontsize=20) 
+        if len(bounds)==2:
+            bounds = np.asarray(bounds).T
+            scaler_x = MinMaxScaler(bounds[0,0], bounds[1,0])
+            scaler_y = MinMaxScaler(bounds[0,1], bounds[1,1])
+            ax.xaxis.set_major_formatter(lambda x, pos : scaled_tickformat(scaler_x, x, pos))
+            ax.yaxis.set_major_formatter(lambda y, pos : scaled_tickformat(scaler_y, y, pos))
+            t = np.linspace(0,1, self.spectra.shape[1])
+            for i, (ci, si) in enumerate(zip(self.comps, self.spectra)):
+                norm_ci = np.array([scaler_x.transform(ci[0]), scaler_y.transform(ci[1])])
+                self._inset_spectra(norm_ci,t, si, ax)
+            ax.set_xlabel('C1', fontsize=20)
+            ax.set_ylabel('C2', fontsize=20) 
+        else:
+            for si in self.spectra:
+                ax.plot(self.wav, si)
+            ax.set_xlabel('wavelength')
+            ax.set_ylabel('intensity') 
 
         return ax
 

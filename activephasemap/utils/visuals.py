@@ -324,6 +324,6 @@ def plot_model_accuracy(direc, gp_model, np_model, expt):
         fig, ax = plt.subplots()
         ci = expt.comps[i,:].reshape(1, c_dim)
         plot_gpmodel_recon(ax, gp_model, np_model, expt, ci)
-        ax.scatter(expt.t, expt.F[i], color='k')
+        ax.scatter(expt.wl, expt.F[i], color='k')
         plt.savefig(direc+'preds/%d.png'%(i))
         plt.close()
