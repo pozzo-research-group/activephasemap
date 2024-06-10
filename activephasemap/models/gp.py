@@ -14,6 +14,7 @@ from botorch.models.utils import gpt_posterior_settings
 from botorch.posteriors import Posterior
 from botorch.fit import fit_gpytorch_mll
 from botorch.acquisition.objective import PosteriorTransform
+from botorch.models.utils.gpytorch_modules import get_matern_kernel_with_gamma_prior
 
 import gpytorch
 from gpytorch.models.gp import GP
@@ -131,9 +132,8 @@ class MultitaskGPModel(gpytorch.models.ExactGP):
         self.mean_module = gpytorch.means.MultitaskMean(
             gpytorch.means.ConstantMean(), num_tasks=num_tasks
         )
-        self.covar_module = gpytorch.kernels.MultitaskKernel(
-            gpytorch.kernels.RBFKernel(), num_tasks=num_tasks, rank=1
-        )
+        base_kernel = get_matern_kernel_with_gamma_prior(ard_num_dims=train_x.shape[-1])
+        self.covar_module = gpytorch.kernels.MultitaskKernel(base_kernel, num_tasks=num_tasks)
 
     def forward(self, x):
         mean_x = self.mean_module(x)
@@ -185,3 +185,9 @@ class MultiTaskGP(GPModel):
         likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=output_dim)
         self.gp = MultitaskGPModel(train_x, train_y, output_dim, likelihood)
         self.mll = ExactMarginalLogLikelihood(likelihood, self.gp).to(train_x)
+
+    def get_covaraince(self, x, xp):
+        cov = self.gp.covar_module(x.unsqueeze(1), xp.unsqueeze(1)).to_dense()
+        K = cov.view(xp.shape[0],-1).mean(axis=1).cpu().numpy().squeeze()
+
+        return K

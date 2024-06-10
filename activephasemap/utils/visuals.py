@@ -80,7 +80,7 @@ def plot_experiment(t, bounds, data):
 
     return 
 
-def plot_iteration(query_idx, expt, train_x, gp_model, np_model, acquisition, z_dim):
+def plot_iteration(query_idx, expt, train_x, new_x, gp_model, np_model, acquisition, z_dim):
     layout = [['A1','A2', 'C', 'C'], 
               ['B1', 'B2', 'C', 'C']
               ]
@@ -91,11 +91,7 @@ def plot_iteration(query_idx, expt, train_x, gp_model, np_model, acquisition, z_
     C_grid = get_twod_grid(20, bounds)
     fig, axs = plt.subplot_mosaic(layout, figsize=(4*4, 4*2))
     fig.subplots_adjust(wspace=0.5, hspace=0.5)
-    if torch.is_tensor(train_x):
-        x_ = train_x.cpu().numpy()
-    else:
-        x_ = train_x
-    axs['A1'].scatter(x_[:,0], x_[:,1], marker='x', color='k')
+    axs['A1'].scatter(train_x[:,0], train_x[:,1], marker='x', color='k')
     axs['A1'].set_xlabel('C1', fontsize=20)
     axs['A1'].set_ylabel('C2', fontsize=20)    
     axs['A1'].set_title('C sampling')
@@ -110,6 +106,7 @@ def plot_iteration(query_idx, expt, train_x, gp_model, np_model, acquisition, z_
     norm = Normalize(vmin=min(acq_values), vmax = max(acq_values))
     mappable = ScalarMappable(norm=norm, cmap=cmap)
     axs['A2'].tricontourf(C_grid[:,0], C_grid[:,1], acq_values, cmap=cmap, norm=norm)
+    axs['A2'].scatter(new_x[:,0], new_x[:,1], marker='x', color='k')    
     divider = make_axes_locatable(axs["A2"])
     cax = divider.append_axes('right', size='5%', pad=0.1)
     cbar = fig.colorbar(mappable, cax=cax)
@@ -142,7 +139,7 @@ def plot_iteration(query_idx, expt, train_x, gp_model, np_model, acquisition, z_
 
     return fig, axs
 
-def plot_gpmodel(expt, gp_model, np_model, fname):
+def plot_gpmodel(expt, gp_model, np_model):
     # plot comp to z model predictions and the GP covariance
     z_dim = np_model.z_dim
     fig, axs = plt.subplots(2,z_dim*2, figsize=(4*z_dim*2, 4*2))
@@ -201,10 +198,7 @@ def plot_gpmodel(expt, gp_model, np_model, fname):
             axs[0,z_dim+i].tricontourf(C_train[:,0], C_train[:,1], z_true_mu[:,i], cmap='bwr', norm=norm)        
             axs[0,z_dim+i].set_xlabel('C1')
             axs[0,z_dim+i].set_ylabel('C2') 
-            axs[0,z_dim+i].set_title('True z_%d'%(i+1))        
-
-        plt.savefig(fname)
-        plt.close()        
+            axs[0,z_dim+i].set_title('True z_%d'%(i+1))              
     return 
 
 # plot phase map predition
@@ -263,7 +257,7 @@ def plot_phasemap_pred(expt, gp_model, np_model, fname):
 
 
 """ Visualization tools customized for experimental campaigns """ 
-def plot_gpmodel_expt(expt, gp_model, np_model, fname):
+def plot_gpmodel_expt(expt, gp_model, np_model):
     # plot comp to z model predictions and the GP covariance
     z_dim = np_model.z_dim
     fig, axs = plt.subplots(2,z_dim, figsize=(4*z_dim, 4*2))
@@ -307,9 +301,7 @@ def plot_gpmodel_expt(expt, gp_model, np_model, fname):
             axs[1,i].scatter(C_train[id_,0], C_train[id_,1], marker='x', s=50, color='k')
             axs[1,i].set_xlabel('C1')
             axs[1,i].set_ylabel('C2')    
-
-        plt.savefig(fname)
-        plt.close()        
+      
     return 
 
 def plot_model_accuracy(direc, gp_model, np_model, expt):

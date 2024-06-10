@@ -4,7 +4,7 @@ from botorch.utils.sampling import draw_sobol_samples
 from botorch.utils.transforms import normalize
 from botorch.sampling.stochastic_samplers import StochasticSampler 
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
-from activephasemap.models.gp import SingleTaskGP, MultiTaskGP 
+from activephasemap.models.gp import SingleTaskGP, MultiTaskGP, MultiTaskListGP 
 from autophasemap import BaseDataSet
 from torch.utils.data import Dataset
 import numpy as np
