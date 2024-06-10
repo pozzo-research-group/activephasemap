@@ -80,7 +80,7 @@ def plot_experiment(t, bounds, data):
 
     return 
 
-def plot_iteration(query_idx, expt, train_x, new_x, gp_model, np_model, acquisition, z_dim):
+def plot_iteration(query_idx, expt, new_x, gp_model, np_model, acquisition, z_dim):
     layout = [['A1','A2', 'C', 'C'], 
               ['B1', 'B2', 'C', 'C']
               ]
@@ -91,7 +91,7 @@ def plot_iteration(query_idx, expt, train_x, new_x, gp_model, np_model, acquisit
     C_grid = get_twod_grid(20, bounds)
     fig, axs = plt.subplot_mosaic(layout, figsize=(4*4, 4*2))
     fig.subplots_adjust(wspace=0.5, hspace=0.5)
-    axs['A1'].scatter(train_x[:,0], train_x[:,1], marker='x', color='k')
+    axs['A1'].scatter(expt.comps[:,0], expt.comps[:,1], marker='x', color='k')
     axs['A1'].set_xlabel('C1', fontsize=20)
     axs['A1'].set_ylabel('C2', fontsize=20)    
     axs['A1'].set_title('C sampling')

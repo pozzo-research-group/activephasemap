@@ -45,7 +45,7 @@ class GPModel(GP):
                 loss = -self.mll(output, self.gp.train_targets)
             loss.backward()
             train_loss.append(loss.item())
-            if (epoch) % self.verbose == 0:
+            if ((epoch) % self.verbose == 0) or (epoch==self.num_epochs-1):
                 print(
                     f"Epoch {epoch+1:>3}/{self.num_epochs} - Loss: {loss.item():>4.3f} "
                 )
@@ -187,7 +187,7 @@ class MultiTaskGP(GPModel):
         self.mll = ExactMarginalLogLikelihood(likelihood, self.gp).to(train_x)
 
     def get_covaraince(self, x, xp):
-        cov = self.gp.covar_module(x.unsqueeze(1), xp.unsqueeze(1)).to_dense()
-        K = cov.view(xp.shape[0],-1).mean(axis=1).cpu().numpy().squeeze()
+        cov = self.gp.covar_module.data_covar_module(x, xp).to_dense()
+        K = cov.cpu().numpy().squeeze()
 
         return K
