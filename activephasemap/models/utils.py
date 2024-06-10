@@ -25,10 +25,9 @@ def finetune_neural_process(x, y, model, **kwargs):
     data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     freeze_params, finetune_params = [], []
     for name, param in model.named_parameters():
-        if 'hidden_to' in name:
-            param.requires_grad = False
-            # if "weight" in name:
-            #     torch.nn.init.xavier_uniform_(param)
+        if "_to_hidden.4.weight" in name:
+            torch.nn.init.xavier_uniform_(param)
+            print("Finetuning %s..."%name)
             finetune_params.append(param)
         else:
             freeze_params.append(param)
@@ -36,14 +35,14 @@ def finetune_neural_process(x, y, model, **kwargs):
     model.training = True
     lr = kwargs.get('learning_rate',  1e-3)
     optimizer = torch.optim.Adam([{'params': freeze_params, "lr":lr},
-                                  {'params': finetune_params, 'lr': lr*20}],
+                                  {'params': finetune_params, 'lr': lr*10}],
                                   lr=lr
                                 )
     epoch_loss = []
     for epoch in range(num_iterations):
         model, optimizer, loss_value = train_neural_process(model, data_loader,optimizer)
 
-        if epoch%kwargs.get("verbose", 1)==0:
+        if (epoch%kwargs.get("verbose", 1)==0) or (epoch==num_iterations-1):
             print("Epoch: %d, Loss value : %2.4f"%(epoch, loss_value))
         epoch_loss.append(loss_value)
 

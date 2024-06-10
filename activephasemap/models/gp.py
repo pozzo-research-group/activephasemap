@@ -133,7 +133,7 @@ class MultitaskGPModel(gpytorch.models.ExactGP):
             gpytorch.means.ConstantMean(), num_tasks=num_tasks
         )
         base_kernel = get_matern_kernel_with_gamma_prior(ard_num_dims=train_x.shape[-1])
-        self.covar_module = gpytorch.kernels.MultitaskKernel(base_kernel, num_tasks=num_tasks)
+        self.covar_module = gpytorch.kernels.MultitaskKernel(base_kernel, num_tasks=num_tasks, rank=2)
 
     def forward(self, x):
         mean_x = self.mean_module(x)
@@ -182,7 +182,7 @@ class MultitaskGPModel(gpytorch.models.ExactGP):
 class MultiTaskGP(GPModel):
     def __init__(self, train_x, train_y, model_args, input_dim, output_dim):
         super().__init__(model_args, input_dim, output_dim)
-        likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=output_dim)
+        likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=output_dim, has_global_noise=False)
         self.gp = MultitaskGPModel(train_x, train_y, output_dim, likelihood)
         self.mll = ExactMarginalLogLikelihood(likelihood, self.gp).to(train_x)
 

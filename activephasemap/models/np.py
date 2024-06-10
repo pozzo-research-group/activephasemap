@@ -64,11 +64,11 @@ class Encoder(nn.Module):
         self.h_dim = h_dim
         self.r_dim = r_dim
 
-        layers = [nn.Linear(x_dim + y_dim, h_dim),
+        layers = [nn.Linear(self.x_dim + self.y_dim,self.h_dim),
                   nn.Sigmoid(),
-                  nn.Linear(h_dim, h_dim),
+                  nn.Linear(self.h_dim, self.h_dim),
                   nn.Sigmoid(),
-                  nn.Linear(h_dim, r_dim)]
+                  nn.Linear(self.h_dim, self.r_dim)]
 
         self.input_to_hidden = nn.Sequential(*layers)
 
@@ -102,9 +102,9 @@ class MuSigmaEncoder(nn.Module):
         self.r_dim = r_dim
         self.z_dim = z_dim
 
-        self.r_to_hidden = nn.Linear(r_dim, r_dim)
-        self.hidden_to_mu = nn.Linear(r_dim, z_dim)
-        self.hidden_to_sigma = nn.Linear(r_dim, z_dim)
+        self.r_to_hidden = nn.Linear(self.r_dim, self.r_dim)
+        self.hidden_to_mu = nn.Linear(self.r_dim, self.z_dim)
+        self.hidden_to_sigma = nn.Linear(self.r_dim, self.z_dim)
 
     def forward(self, r):
         """
@@ -146,16 +146,16 @@ class Decoder(nn.Module):
         self.h_dim = h_dim
         self.y_dim = y_dim
 
-        layers = [nn.Linear(x_dim + z_dim, h_dim),
+        layers = [nn.Linear(self.x_dim + self.z_dim, self.h_dim),
                   nn.Sigmoid(),
-                  nn.Linear(h_dim, h_dim),
+                  nn.Linear(self.h_dim, self.h_dim),
                   nn.Sigmoid(),
-                  nn.Linear(h_dim, h_dim),
+                  nn.Linear(self.h_dim, self.h_dim),
                   nn.Sigmoid()]
 
         self.xz_to_hidden = nn.Sequential(*layers)
-        self.hidden_to_mu = nn.Linear(h_dim, y_dim)
-        self.hidden_to_sigma = nn.Linear(h_dim, y_dim)
+        self.hidden_to_mu = nn.Linear(self.h_dim, self.y_dim)
+        self.hidden_to_sigma = nn.Linear(self.h_dim, self.y_dim)
 
     def forward(self, x, z):
         """
