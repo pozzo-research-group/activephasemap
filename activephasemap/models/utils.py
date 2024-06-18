@@ -45,10 +45,11 @@ def finetune_neural_process(x, y, model, **kwargs):
                                   lr=lr
                                 )
     epoch_loss = []
+    verbose = kwargs.get("verbose", 1)
     for epoch in range(num_iterations):
         model, optimizer, loss_value = train_neural_process(model, data_loader,optimizer)
 
-        if (epoch%kwargs.get("verbose", 1)==0) or (epoch==num_iterations-1):
+        if (epoch%verbose==0) or (epoch==num_iterations-1):
             print("Epoch: %d, Loss value : %2.4f"%(epoch, loss_value))
         epoch_loss.append(loss_value)
 

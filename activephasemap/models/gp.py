@@ -33,6 +33,7 @@ class GPModel(GP):
         self.num_epochs = model_args["num_epochs"] if "num_epochs" in model_args else 100 
         self.learning_rate = model_args["learning_rate"] if "learning_rate" in model_args else 3e-4
         self.verbose =  model_args["verbose"] if "verbose" in model_args else 1
+        self.debug = model_args["debug"] if "debug" in model_args else False
 
     def fit(self):
         optimizer = torch.optim.Adam(self.gp.parameters(), lr=self.learning_rate)
@@ -49,12 +50,17 @@ class GPModel(GP):
                 print(
                     f"Epoch {epoch+1:>3}/{self.num_epochs} - Loss: {loss.item():>4.3f} "
                 )
-                if self.verbose>10000:
-                    for name, param in self.gp.named_parameters():
-                        print(f"{name:>3} : value: {param.data}")
+                if self.debug:
+                    self.print_hyperparams()
             optimizer.step()    
 
         return train_loss
+
+    def print_hyperparams(self):
+        for name, param in self.gp.named_parameters():
+            print(f"{name:>3} : value: {param.data}")
+
+        return         
 
     def fit_botorch_style(self):
         fit_gpytorch_mll(self.mll)
