@@ -37,7 +37,16 @@ def finetune_neural_process(x, y, model, **kwargs):
                 print("Finetuning %s..."%name)
         else:
             freeze_params.append(param)
-
+    
+    # look for possible parallelization on multiple GPUs
+    if device=="cuda":
+        n_devices = torch.cuda.device_count()
+        print('Running NP-finetuning on %d GPUs.'%n_devices)
+        if n_devices>1:
+            model = torch.nn.DataParallel(model)
+    else:
+        print("Using %s device with no parallelization"%device)
+    model.to(device)
     model.training = True
     lr = kwargs.get('learning_rate',  1e-3)
     optimizer = torch.optim.Adam([{'params': freeze_params, "lr":lr},

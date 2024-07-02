@@ -22,6 +22,7 @@ from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 from gpytorch.distributions import MultitaskMultivariateNormal
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 class GPModel(GP):
     def __init__(self, model_args, input_dim, output_dim):
@@ -98,9 +99,9 @@ class SingleTaskGP(GPModel):
             raise RuntimeError("SingleTaskGP does not fit tasks with multiple objectives")
 
         self.gp = botorch.models.SingleTaskGP(
-            train_x, train_y, outcome_transform=Standardize(m=1)).to(train_x)
+            train_x, train_y, outcome_transform=Standardize(m=1)).to(device)
         self.mll = ExactMarginalLogLikelihood(
-            self.gp.likelihood, self.gp).to(train_x)
+            self.gp.likelihood, self.gp).to(device)
 
     def get_covaraince(self, x, xp):
         cov = self.gp.covar_module(x, xp).to_dense()
@@ -139,7 +140,17 @@ class MultitaskGPModel(gpytorch.models.ExactGP):
             gpytorch.means.ConstantMean(), num_tasks=num_tasks
         )
         base_kernel = get_matern_kernel_with_gamma_prior(ard_num_dims=train_x.shape[-1])
-        self.covar_module = gpytorch.kernels.MultitaskKernel(base_kernel, num_tasks=num_tasks, rank=2)
+        base_covar_module = gpytorch.kernels.MultitaskKernel(base_kernel, num_tasks=num_tasks, rank=2)
+
+        n_devices = torch.cuda.device_count()
+        if n_devices>1:
+            print('Planning to run on GP-fiiting on {} GPUs.'.format(n_devices))
+            self.covar_module = gpytorch.kernels.MultiDeviceKernel(
+                base_covar_module, device_ids=range(n_devices),
+                output_device=device
+            )
+        else:
+            self.covar_module = base_covar_module
 
     def forward(self, x):
         mean_x = self.mean_module(x)
@@ -186,11 +197,17 @@ class MultitaskGPModel(gpytorch.models.ExactGP):
             return X
 
 class MultiTaskGP(GPModel):
-    def __init__(self, train_x, train_y, model_args, input_dim, output_dim):
+    def __init__(self, train_x, train_y, model_args, input_dim, output_dim, train_y_std=None):
         super().__init__(model_args, input_dim, output_dim)
-        likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=output_dim, has_global_noise=False)
-        self.gp = MultitaskGPModel(train_x, train_y, output_dim, likelihood)
-        self.mll = ExactMarginalLogLikelihood(likelihood, self.gp).to(train_x)
+        if train_y_std==None:
+            noise_mean = torch.zeros(output_dim)
+            noise_covar = torch.eye(output_dim)*train_y_std.max(dim=0).values
+            noise_prior = gpytorch.priors.MultivariateNormalPrior(loc=noise_mean,covariance_matrix=noise_covar)
+            likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=output_dim, noise_prior=noise_prior, has_global_noise=False).to(device)                    
+        else:
+            likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=output_dim, has_global_noise=False).to(device)
+        self.gp = MultitaskGPModel(train_x, train_y, output_dim, likelihood).to(device)
+        self.mll = ExactMarginalLogLikelihood(likelihood, self.gp).to(device)
 
     def get_covaraince(self, x, xp):
         cov = self.gp.covar_module.data_covar_module(x, xp).to_dense()
