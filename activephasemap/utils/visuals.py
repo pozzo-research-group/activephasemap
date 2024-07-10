@@ -292,15 +292,16 @@ def plot_gpmodel_expt(expt, gp_model, np_model):
             axs[0,i].legend()
 
         # plot covariance of randomly selected points
-        idx = RNG.choice(range(n_train),size=z_dim, replace=False)  
-        for i, id_ in enumerate(idx):
-            ci = C_train[id_,:].reshape(1, 2)
-            ci = torch.tensor(ci).to(device)
-            Ki = gp_model.get_covaraince(ci, c_grid)
-            axs[1,i].tricontourf(c_grid_np[:,0], c_grid_np[:,1], Ki, cmap='plasma')
-            axs[1,i].scatter(C_train[id_,0], C_train[id_,1], marker='x', s=50, color='k')
-            axs[1,i].set_xlabel('C1')
-            axs[1,i].set_ylabel('C2')    
+        if expt.dim==2:
+            idx = RNG.choice(range(n_train),size=z_dim, replace=False)  
+            for i, id_ in enumerate(idx):
+                ci = C_train[id_,:].reshape(1, 2)
+                ci = torch.tensor(ci).to(device)
+                Ki = gp_model.get_covaraince(ci, c_grid)
+                axs[1,i].tricontourf(c_grid_np[:,0], c_grid_np[:,1], Ki, cmap='plasma')
+                axs[1,i].scatter(C_train[id_,0], C_train[id_,1], marker='x', s=50, color='k')
+                axs[1,i].set_xlabel('C1')
+                axs[1,i].set_ylabel('C2')    
       
     return 
 

@@ -199,9 +199,10 @@ class MultitaskGPModel(gpytorch.models.ExactGP):
 class MultiTaskGP(GPModel):
     def __init__(self, train_x, train_y, model_args, input_dim, output_dim, train_y_std=None):
         super().__init__(model_args, input_dim, output_dim)
-        if train_y_std==None:
-            noise_mean = torch.zeros(output_dim)
-            noise_covar = torch.eye(output_dim)*train_y_std.max(dim=0).values
+        if train_y_std is not None:
+            print("GP model is using a noise prior based on train_y std...")
+            noise_mean = torch.zeros(output_dim).to(device)
+            noise_covar = torch.eye(output_dim).to(device)*train_y_std.max(dim=0).values
             noise_prior = gpytorch.priors.MultivariateNormalPrior(loc=noise_mean,covariance_matrix=noise_covar)
             likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=output_dim, noise_prior=noise_prior, has_global_noise=False).to(device)                    
         else:

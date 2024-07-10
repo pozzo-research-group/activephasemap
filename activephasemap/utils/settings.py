@@ -30,12 +30,11 @@ def initialize_points(bounds, n_init_points, device):
     return init_x
 
 def construct_acqf_by_model(model, train_x, train_y, num_objectives=1):
-    dim = train_y.shape[1]
     sampler = StochasticSampler(sample_shape=torch.Size([256]))
     if num_objectives==1:
         acqf = qUpperConfidenceBound(model=model, beta=100, sampler=sampler)
     else:
-        weights = torch.ones(dim)/dim
+        weights = torch.ones(model.output_dim)/model.output_dim
         posterior_transform = ScalarizedPosteriorTransform(weights.to(train_x))
         acqf = qUpperConfidenceBound(model=model, 
         beta=100, 
