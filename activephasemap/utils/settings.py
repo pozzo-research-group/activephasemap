@@ -4,12 +4,14 @@ from botorch.utils.sampling import draw_sobol_samples
 from botorch.utils.transforms import normalize
 from botorch.sampling.stochastic_samplers import StochasticSampler 
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
+from botorch.optim.initializers import initialize_q_batch_nonneg
 from activephasemap.models.gp import SingleTaskGP, MultiTaskGP, MultiTaskListGP 
 from autophasemap import BaseDataSet
 from torch.utils.data import Dataset
 import numpy as np
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_default_dtype(torch.double)
+import pdb
 
 def initialize_model(train_x, train_y, model_args, input_dim, output_dim, device):
     if model_args["model"] == 'gp':
@@ -35,6 +37,7 @@ def construct_acqf_by_model(model, train_x, train_y, num_objectives=1):
         acqf = qUpperConfidenceBound(model=model, beta=100, sampler=sampler)
     else:
         weights = torch.ones(model.output_dim)/model.output_dim
+        print(weights.shape)
         posterior_transform = ScalarizedPosteriorTransform(weights.to(train_x))
         acqf = qUpperConfidenceBound(model=model, 
         beta=100, 
@@ -44,6 +47,41 @@ def construct_acqf_by_model(model, train_x, train_y, num_objectives=1):
 
 
     return acqf 
+
+def optimize_acqf(model, bounds, num_batches, num_restarts=16):
+    weights = torch.ones(model.output_dim)/model.output_dim
+    posterior_transform = ScalarizedPosteriorTransform(weights.to(device))
+    sampler = StochasticSampler(sample_shape=torch.Size([256]))
+    acqf = qUpperConfidenceBound(model=model, 
+                                 beta=100, 
+                                 sampler=sampler,
+                                 posterior_transform = posterior_transform
+                                 )
+    Xraw = torch.rand(100 * num_restarts, num_batches, len(bounds)).to(device)
+    Xraw = bounds[0] + (bounds[1] - bounds[0]) * Xraw
+    # evaluate the acquisition function on these q-batches
+    Yraw = torch.Tensor([acqf(Xraw[i,...]) for i in range(100*num_restarts)]).to(device) 
+    X = initialize_q_batch_nonneg(Xraw, Yraw, num_restarts)    # apply the heuristic for sampling promising initial conditions
+    X.requires_grad_(True)
+    optimizer = torch.optim.Adam([X], lr=0.01)
+
+    for i in range(100):
+        optimizer.zero_grad()
+        losses = torch.Tensor([-acqf(X[i,...]) for i in range(num_restarts)]).to(device)
+        losses.requires_grad_(True)
+        loss = losses.sum()
+        loss.backward() 
+        optimizer.step()
+
+        # clamp values to the feasible set
+        for j, (lb, ub) in enumerate(zip(*bounds)):
+            X.data[..., j].clamp_(lb, ub)  # need to do this on the data not X itself
+
+        if (i + 1) % 15 == 0:
+            print(f"Iteration {i+1:>3}/100 - Loss: {loss.item():>4.3f}")
+
+    return X[losses.argmin().item(),...], acqf
+    
 
 class ActiveLearningDataset(Dataset):
     def __init__(self, x, y):
