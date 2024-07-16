@@ -11,12 +11,12 @@ import numpy as np
 import pdb
 
 class MultitaskSVGPModel(gpytorch.models.ApproximateGP):
-    def __init__(self, input_dim, num_latents, num_tasks):
-        self.num_outputs = num_tasks
-        inducing_points = torch.rand(num_latents, 16, input_dim).to(device)
+    def __init__(self, input_dim, inducing_points, num_tasks):
+        num_latents = inducing_points.size(0)
+        self.batch_shape = torch.Size([num_latents])
 
         variational_distribution = gpytorch.variational.CholeskyVariationalDistribution(
-            inducing_points.size(-2), batch_shape=torch.Size([num_latents])
+            inducing_points.size(-2), batch_shape=self.batch_shape
         )
         variational_strategy = gpytorch.variational.LMCVariationalStrategy(
             gpytorch.variational.VariationalStrategy(
@@ -29,15 +29,15 @@ class MultitaskSVGPModel(gpytorch.models.ApproximateGP):
 
         super().__init__(variational_strategy)
 
-        self.mean_module = gpytorch.means.ConstantMean(batch_shape=torch.Size([num_latents]))
+        self.mean_module = gpytorch.means.ConstantMean(batch_shape=self.batch_shape)
         self.covar_module = gpytorch.kernels.ScaleKernel(
-                gpytorch.kernels.MaternKernel(
+            gpytorch.kernels.MaternKernel(
                     nu=2.5,
-                    ard_num_dims=input_dim,
-                    batch_shape=torch.Size([num_latents]),
+                    # ard_num_dims=input_dim,
+                    batch_shape=self.batch_shape,
                     lengthscale_prior=gpytorch.priors.GammaPrior(3.0, 6.0),
                 ),
-                batch_shape=torch.Size([num_latents]),
+                batch_shape=self.batch_shape,
                 outputscale_prior=gpytorch.priors.GammaPrior(2.0, 0.15),
             )
 
@@ -46,67 +46,51 @@ class MultitaskSVGPModel(gpytorch.models.ApproximateGP):
         covar_x = self.covar_module(x)
         return gpytorch.distributions.MultivariateNormal(mean_x, covar_x)
 
-    def posterior(self, X, output_indices = None, observation_noise = False,posterior_transform = None):
-        self.eval()
-        X = self.transform_inputs(X)
-        with gpt_posterior_settings():
-            if len(X.size())==3:
-                mvn = self(X.squeeze())
-            else:
-                mvn = self(X)
-
-        posterior = GPyTorchPosterior(distribution=mvn)
-        if hasattr(self, "outcome_transform"):
-            posterior = self.outcome_transform.untransform_posterior(posterior)
-        if posterior_transform is not None:
-            return posterior_transform(posterior)
-
-        return posterior
-
-    def transform_inputs(self, X, input_transform=None):
-        r"""Transform inputs.
-
-        Args:
-            X: A tensor of inputs
-            input_transform: A Module that performs the input transformation.
-
-        Returns:
-            A tensor of transformed inputs
-        """
-        if input_transform is not None:
-            input_transform.to(X)
-            return input_transform(X)
-        try:
-            return self.input_transform(X)
-        except AttributeError:
-            return X
-
-class MultiTaskSVGP(GPModel):
-    def __init__(self, x, y, model_args, input_dim, output_dim):
-        super().__init__(model_args, input_dim, output_dim)
-        num_latents = model_args["num_latents"] if "num_latents" in model_args else 5
+class MultiTaskSVGP(gpytorch.models.gp.GP):
+    def __init__(self, x, y, **kwargs):
+        super().__init__()
         self.x = x 
         self.y = y
-        self.gp = MultitaskSVGPModel(input_dim, num_latents, output_dim).to(device)
+        self.num_latents = kwargs.get("num_latents", int(self.y.size(-1)-1))
+        self.num_inducing_points = kwargs.get("num_inducing_points", int(0.1*self.x.size(0)))
+        self.learning_rate = kwargs.get("learning_rate",0.01)
+        self.num_epochs = kwargs.get("num_epochs", 16)
+        self.debug = kwargs.get("debug", False)
+        self.verbose = kwargs.get("verbose", 1)
+        self.output_dim = y.shape[1]
+        self.input_dim = x.shape[1]
+        u = self.get_inducing_points()
+        self.gp = MultitaskSVGPModel(self.input_dim, u, self.output_dim).to(device)
         noise_prior = gpytorch.priors.GammaPrior(1.1, 0.05)
         noise_prior_mode = (noise_prior.concentration - 1) / noise_prior.rate
-        self.likelihood= gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=output_dim,
-            rank = 1,
-            noise_prior=noise_prior,
-            batch_shape=torch.Size([num_latents]),
-            noise_constraint=gpytorch.constraints.GreaterThan(
-                1e-4,
-                transform=None,
-                initial_value=noise_prior_mode,
-            ),
-        ).to(device)
-        self.mll = gpytorch.mlls.VariationalELBO(self.likelihood, self.gp, num_data=self.y.size(0))
+        noise_constraint = gpytorch.constraints.GreaterThan(1e-4,transform=None,initial_value=noise_prior_mode)
+        self.likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=self.output_dim,
+                                                                           noise_prior=noise_prior,
+                                                                           noise_constraint=noise_constraint).to(device)
+        self.mll = gpytorch.mlls.VariationalELBO(self.likelihood, 
+                                                 self.gp, 
+                                                 num_data=self.y.size(0)
+                                                 )
 
     def get_covaraince(self, x, xp):
-        cov = self.gp.covar_module.data_covar_module(x, xp).to_dense()
-        K = cov.cpu().numpy().squeeze()
+        cov = self.gp.covar_module(x, xp).to_dense()
+        cov_mean_tasks = cov.squeeze().mT.mean(dim=1)
+        K = cov_mean_tasks.cpu().numpy().squeeze()
 
         return K
+    
+    def get_inducing_points(self):
+        out = []
+        for _ in range(self.num_latents):
+            rid = torch.randperm(self.x.size(0))[:self.num_inducing_points]
+            u = self.x[rid,...]
+            if (u<0).any():
+                pdb.set_trace()
+            out.append(u)
+            
+        out = torch.stack(out)
+
+        return out.to(device)
 
     def _setup_train_eval_data(self):
         train_ind = np.random.randint(0, len(self.x), int(0.8*len(self.x)))
@@ -114,7 +98,7 @@ class MultiTaskSVGP(GPModel):
         self.train_x, self.train_y = self.x[train_ind,:], self.y[train_ind,:]
         self.test_x, self.test_y = self.x[test_ind,:], self.y[test_ind,:]
         train_dataset = TensorDataset(self.train_x, self.train_y)
-        train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+        train_loader = DataLoader(train_dataset, batch_size=8, shuffle=True)
 
         test_dataset = TensorDataset(self.train_x, self.train_y)
         test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False)
@@ -151,7 +135,22 @@ class MultiTaskSVGP(GPModel):
                         output = self.gp(xb)
                         test_loss.append(-self.mll(output, yb).item())
                     print(f" Test Loss: {sum(test_loss)/len(test_loss):>4.3f} ")
-            if self.debug:
-                self.print_hyperparams() 
+                if self.debug:
+                    self.print_hyperparams() 
 
         return train_loss
+
+    def print_hyperparams(self):
+        for name, param in self.gp.named_parameters():
+            print(f"{name:>3} : value: {param.data}")
+
+        return  
+    def posterior(self, x):
+        with torch.no_grad(), gpytorch.settings.fast_pred_var():
+            self.gp.eval()
+            self.likelihood.eval()
+            mvn = self.gp(x)
+            mvn = self.likelihood(mvn)
+
+            return mvn
+

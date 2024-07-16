@@ -11,9 +11,6 @@ from botorch.models.gpytorch import MultiTaskGPyTorchModel
 from botorch.models.transforms.outcome import Standardize
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.models.utils import gpt_posterior_settings
-from botorch.posteriors import Posterior
-from botorch.fit import fit_gpytorch_mll
-from botorch.acquisition.objective import PosteriorTransform
 from botorch.models.utils.gpytorch_modules import get_matern_kernel_with_gamma_prior
 
 import gpytorch
@@ -61,23 +58,10 @@ class GPModel(GP):
         for name, param in self.gp.named_parameters():
             print(f"{name:>3} : value: {param.data}")
 
-        return         
+        return       
 
-    def fit_botorch_style(self):
-        fit_gpytorch_mll(self.mll)
-
-        return 
-
-    def posterior(
-        self,
-        X: Tensor,
-        output_indices: Optional[List[int]] = None,
-        observation_noise: bool = False,
-        posterior_transform: Optional[Callable[[Posterior], Posterior]] = None,
-        **kwargs: Any,
-    ) -> Posterior:
-        
-        return self.gp.posterior(X, output_indices, observation_noise, posterior_transform, **kwargs)
+    def posterior(self, X, **kwargs):
+        return self.gp.posterior(X, **kwargs) 
 
     @property
     def batch_shape(self) -> torch.Size:
@@ -91,50 +75,12 @@ class GPModel(GP):
     def get_covaraince(self, x, xp):
         pass
 
-class SingleTaskGP(GPModel):
-
-    def __init__(self, train_x, train_y, model_args, input_dim, output_dim):
-        super().__init__(model_args, input_dim, output_dim)
-        if self.output_dim > 1:
-            raise RuntimeError("SingleTaskGP does not fit tasks with multiple objectives")
-
-        self.gp = botorch.models.SingleTaskGP(
-            train_x, train_y, outcome_transform=Standardize(m=1)).to(device)
-        self.mll = ExactMarginalLogLikelihood(
-            self.gp.likelihood, self.gp).to(device)
-
-    def get_covaraince(self, x, xp):
-        cov = self.gp.covar_module(x, xp).to_dense()
-        K = cov.mean(axis=0).cpu().numpy().squeeze()
-
-        return K
-
-class MultiTaskListGP(GPModel):
-
-    def __init__(self, train_x, train_y, model_args, input_dim, output_dim):
-        super().__init__(model_args, input_dim, output_dim)
-        models = []
-        for d in range(self.output_dim):
-            models.append(
-                botorch.models.SingleTaskGP(
-                    train_x,
-                    train_y[:, d].unsqueeze(-1),
-                    outcome_transform=Standardize(m=1)).to(train_x))
-
-        self.gp = ModelListGP(*models)
-        self.mll = SumMarginalLogLikelihood(self.gp.likelihood, self.gp).to(train_x)
-         
-    def get_covaraince(self, x, xp):  
-        cov = torch.zeros((1,len(xp))).to(xp)
-        for m in self.gp.models:        
-            cov += m.covar_module(x, xp).to_dense()
-        K = cov.mean(axis=0).cpu().numpy().squeeze()
-
-        return K
-
 class MultitaskGPModel(gpytorch.models.ExactGP):
     def __init__(self, train_x, train_y, num_tasks, likelihood):
+        outcome_transform = Standardize(num_tasks)
+        train_y,_ = outcome_transform(train_y)
         super().__init__(train_x, train_y, likelihood)
+        self.outcome_transform = outcome_transform
         self.num_outputs = num_tasks
         self.mean_module = gpytorch.means.MultitaskMean(
             gpytorch.means.ConstantMean(), num_tasks=num_tasks
@@ -158,55 +104,26 @@ class MultitaskGPModel(gpytorch.models.ExactGP):
 
         return gpytorch.distributions.MultitaskMultivariateNormal(mean_x, covar_x)
 
-    def posterior(self, X, output_indices = None, observation_noise = False,posterior_transform = None):
+    def posterior(self, X, **kwargs):
         self.eval()  # make sure model is in eval mode
         # input transforms are applied at `posterior` in `eval` mode, and at
         # `model.forward()` at the training time
-        X = self.transform_inputs(X)
         with gpt_posterior_settings():
             mvn = self(X)
+            mvn = self.likelihood(mvn)
 
         posterior = GPyTorchPosterior(distribution=mvn)
-        if hasattr(self, "outcome_transform"):
-            posterior = self.outcome_transform.untransform_posterior(posterior)
-        if posterior_transform is not None:
-            return posterior_transform(posterior)
+        posterior = self.outcome_transform.untransform_posterior(posterior)
+        posterior_tranform = kwargs.get("posterior_tranform", None)
+        if  posterior_tranform is not None:
+            posterior = posterior_tranform(posterior)
 
         return posterior
-
-    def transform_inputs(
-        self,
-        X: Tensor,
-        input_transform: Optional[torch.nn.Module] = None,
-    ) -> Tensor:
-        r"""Transform inputs.
-
-        Args:
-            X: A tensor of inputs
-            input_transform: A Module that performs the input transformation.
-
-        Returns:
-            A tensor of transformed inputs
-        """
-        if input_transform is not None:
-            input_transform.to(X)
-            return input_transform(X)
-        try:
-            return self.input_transform(X)
-        except AttributeError:
-            return X
 
 class MultiTaskGP(GPModel):
     def __init__(self, train_x, train_y, model_args, input_dim, output_dim, train_y_std=None):
         super().__init__(model_args, input_dim, output_dim)
-        if train_y_std is not None:
-            print("GP model is using a noise prior based on train_y std...")
-            noise_mean = torch.zeros(output_dim).to(device)
-            noise_covar = torch.eye(output_dim).to(device)*train_y_std.max(dim=0).values
-            noise_prior = gpytorch.priors.MultivariateNormalPrior(loc=noise_mean,covariance_matrix=noise_covar)
-            likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=output_dim, noise_prior=noise_prior, has_global_noise=False).to(device)                    
-        else:
-            likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=output_dim, has_global_noise=False).to(device)
+        likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks=output_dim, has_global_noise=False).to(device)
         self.gp = MultitaskGPModel(train_x, train_y, output_dim, likelihood).to(device)
         self.mll = ExactMarginalLogLikelihood(likelihood, self.gp).to(device)
 
