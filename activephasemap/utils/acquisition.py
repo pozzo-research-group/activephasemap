@@ -25,7 +25,7 @@ class UncertainitySelector(torch.nn.Module):
 
             return acqf
 
-    def optimize(self, batch_size, num_points_per_dim=20):
+    def optimize(self, batch_size, num_points_per_dim=50):
         grid = torch.rand(num_points_per_dim**self.input_dim, len(self.bounds)).to(device)
         grid = self.bounds[0] + (self.bounds[1] - self.bounds[0]) * grid
         grid_normalized = normalize(grid, self.bounds)
@@ -35,4 +35,51 @@ class UncertainitySelector(torch.nn.Module):
 
         return grid[argmax_ind,:]
 
+class CompositeModelUncertainity(torch.nn.Module):
+    def __init__(self, t, bounds, NP, MLP):
+        super().__init__()
+        NP.eval()
+        MLP.eval()
+        self.t = t
+        self.z_to_y = NP 
+        self.c_to_z = MLP 
+        self.bounds = bounds
+        self.input_dim = len(bounds) 
 
+    def forward(self, x):
+        num_restarts, num_batches, _ = x.shape
+        acqv = torch.zeros((num_restarts, num_batches))
+        for nr in range(num_restarts):
+            for nb in range(num_batches):
+                z_mu, z_std = self.c_to_z.mlp(x[nr, nb, :])
+                z_dist = torch.distributions.Normal(z_mu, z_std)
+                z = z_dist.rsample(torch.Size([100]))
+                t = torch.from_numpy(self.t).repeat(100, 1, 1).to(device)
+                t = torch.swapaxes(t, 1, 2)
+                y_samples, _ = self.z_to_y.xz_to_y(t, z)
+                sigma_pred = y_samples.std(dim=0, keepdim=True)
+                acqv[nr, nb] = sigma_pred.mean()
+
+        return acqv
+
+    def optimize(self, batch_size, num_restarts=8):
+        X = torch.rand(num_restarts, batch_size, len(self.bounds)).to(device)
+        X = self.bounds[0] + (self.bounds[1] - self.bounds[0]) * X
+        X.requires_grad_(True)
+        optimizer = torch.optim.Adam([X], lr=0.01)
+
+        for i in range(100):
+            optimizer.zero_grad()
+            acqv = -self(X)
+            loss = acqv.sum()
+            loss.backward() 
+            optimizer.step()
+
+            # clamp values to the feasible set
+            for j, (lb, ub) in enumerate(zip(*self.bounds)):
+                X.data[..., j].clamp_(lb, ub)  # need to do this on the data not X itself
+
+            if (i + 1) % 15 == 0:
+                print(f"Iteration {i+1:>3}/100 - Loss: {loss.item():>4.3f}")
+        
+        return X[acqv.sum(dim=1).argmin(),...].detach()

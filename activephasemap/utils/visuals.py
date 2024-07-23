@@ -12,10 +12,17 @@ from matplotlib.cm import ScalarMappable
 import torch 
 from botorch.utils.transforms import normalize
 from activephasemap.models.np import context_target_split 
-from activephasemap.utils.settings import from_comp_to_spectrum, get_twod_grid
+from activephasemap.utils.settings import from_comp_to_spectrum
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# plot samples in the composition grid of p(y|c)
+def get_twod_grid(n_grid, bounds):
+    x = np.linspace(bounds[0,0],bounds[1,0], n_grid)
+    y = np.linspace(bounds[0,1],bounds[1,1], n_grid)
+    X,Y = np.meshgrid(x,y)
+    points = np.vstack([X.ravel(), Y.ravel()]).T 
+
+    return points 
+
 def _inset_spectra(c, t, mu, sigma, ax, show_sigma=False, **kwargs):
         loc_ax = ax.transLimits.transform(c)
         ins_ax = ax.inset_axes([loc_ax[0],loc_ax[1],0.1,0.1])

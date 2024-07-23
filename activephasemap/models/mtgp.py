@@ -3,14 +3,13 @@ import gpytorch
 import botorch
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
 import pdb
 
 class MultitaskGPModel(gpytorch.models.ExactGP):
     def __init__(self, train_x, train_y, likelihood):
         super().__init__(train_x, train_y, likelihood)
         num_tasks = train_y.shape[1]
-        self.mean_module = gpytorch.means.MultitaskMean(gpytorch.means.ConstantMean(), 
+        self.mean_module = gpytorch.means.MultitaskMean(gpytorch.means.ZeroMean(), 
                                                         num_tasks=num_tasks
                                                         )
         base_kernel = gpytorch.kernels.ScaleKernel(gpytorch.kernels.MaternKernel(
@@ -35,6 +34,7 @@ class MultiTaskGPVersion2(gpytorch.models.gp.GP):
         self.num_epochs = kwargs.get("num_epochs", 16)
         self.debug = kwargs.get("debug", False)
         self.verbose = kwargs.get("verbose", 1)
+        self.threshold = kwargs.get("threshold", 1e-2)
         self.output_dim = y.shape[1]
         self.input_dim = x.shape[1]
         self.outcome_transform = botorch.models.transforms.outcome.Standardize(self.output_dim)
@@ -69,7 +69,18 @@ class MultiTaskGPVersion2(gpytorch.models.gp.GP):
                 )
                 if self.debug:
                     self.print_hyperparams()
-            optimizer.step()    
+            optimizer.step()
+
+            if train_loss[-1]<self.threshold:
+                print("[1] Loss threshold reached...stopping GP hyperparameter training early...")
+                break
+
+            if epoch>51:
+                loss_improved = abs(train_loss[-1]-train_loss[-50])
+                if loss_improved<0.1*self.threshold:
+                    print("[2] No improvement over the last 50 epochs (%2.4f)"%loss_improved, end="")
+                    print("...early stopping GP hyper parameter tuning...")
+                    break
 
         return train_loss
 
@@ -79,13 +90,13 @@ class MultiTaskGPVersion2(gpytorch.models.gp.GP):
 
         return  
 
+    @torch.no_grad
     def posterior(self, x):
-        with torch.no_grad(), gpytorch.settings.fast_pred_var():
-            self.gp.eval()
-            self.likelihood.eval()
-            mvn = self.gp(x)
-            mvn = self.likelihood(mvn)
-            posterior = botorch.posteriors.gpytorch.GPyTorchPosterior(mvn)
-            posterior = self.outcome_transform.untransform_posterior(posterior)
+        self.gp.eval()
+        self.likelihood.eval()
+        mvn = self.gp(x)
+        mvn = self.likelihood(mvn)
+        posterior = botorch.posteriors.gpytorch.GPyTorchPosterior(mvn)
+        posterior = self.outcome_transform.untransform_posterior(posterior)
 
-            return posterior
+        return posterior

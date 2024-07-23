@@ -3,6 +3,7 @@ import gpytorch
 import tqdm 
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.models.utils import gpt_posterior_settings
+from botorch.models.transforms.outcome import Standardize
 from .gp import GPModel
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 from torch.utils.data import TensorDataset, DataLoader
@@ -33,7 +34,7 @@ class MultitaskSVGPModel(gpytorch.models.ApproximateGP):
         self.covar_module = gpytorch.kernels.ScaleKernel(
             gpytorch.kernels.MaternKernel(
                     nu=2.5,
-                    # ard_num_dims=input_dim,
+                    ard_num_dims=input_dim,
                     batch_shape=self.batch_shape,
                     lengthscale_prior=gpytorch.priors.GammaPrior(3.0, 6.0),
                 ),
@@ -51,6 +52,7 @@ class MultiTaskSVGP(gpytorch.models.gp.GP):
         super().__init__()
         self.x = x 
         self.y = y
+
         self.num_latents = kwargs.get("num_latents", int(self.y.size(-1)-1))
         self.num_inducing_points = kwargs.get("num_inducing_points", int(0.1*self.x.size(0)))
         self.learning_rate = kwargs.get("learning_rate",0.01)
@@ -59,6 +61,8 @@ class MultiTaskSVGP(gpytorch.models.gp.GP):
         self.verbose = kwargs.get("verbose", 1)
         self.output_dim = y.shape[1]
         self.input_dim = x.shape[1]
+        self.outcome_transform = Standardize(self.output_dim)
+        self.y,_ = self.outcome_transform(self.y)
         u = self.get_inducing_points()
         self.gp = MultitaskSVGPModel(self.input_dim, u, self.output_dim).to(device)
         noise_prior = gpytorch.priors.GammaPrior(1.1, 0.05)
@@ -81,11 +85,9 @@ class MultiTaskSVGP(gpytorch.models.gp.GP):
     
     def get_inducing_points(self):
         out = []
-        for _ in range(self.num_latents):
+        for _ in range(self.num_latents-1):
             rid = torch.randperm(self.x.size(0))[:self.num_inducing_points]
             u = self.x[rid,...]
-            if (u<0).any():
-                pdb.set_trace()
             out.append(u)
             
         out = torch.stack(out)
@@ -93,7 +95,7 @@ class MultiTaskSVGP(gpytorch.models.gp.GP):
         return out.to(device)
 
     def _setup_train_eval_data(self):
-        train_ind = np.random.randint(0, len(self.x), int(0.8*len(self.x)))
+        train_ind = np.random.randint(0, len(self.x), int(0.95*len(self.x)))
         test_ind = np.setdiff1d(np.arange(len(self.x)), train_ind)
         self.train_x, self.train_y = self.x[train_ind,:], self.y[train_ind,:]
         self.test_x, self.test_y = self.x[test_ind,:], self.y[test_ind,:]
@@ -112,8 +114,8 @@ class MultiTaskSVGP(gpytorch.models.gp.GP):
                                       )
         self.gp.train()
         train_loss = []
+        train_loader, eval_loader = self._setup_train_eval_data()
         for epoch in range(self.num_epochs):
-            train_loader, test_loader = self._setup_train_eval_data()
             epoch_loss = []
             for xb, yb in train_loader:
                 optimizer.zero_grad()
@@ -130,11 +132,11 @@ class MultiTaskSVGP(gpytorch.models.gp.GP):
                     f"Epoch {epoch+1:>3}/{self.num_epochs} - Loss: {train_loss[-1]:>4.3f} ", end=""
                 )
                 with torch.no_grad():
-                    test_loss = []
-                    for xb, yb in test_loader:
+                    eval_loss = []
+                    for xb, yb in eval_loader:
                         output = self.gp(xb)
-                        test_loss.append(-self.mll(output, yb).item())
-                    print(f" Test Loss: {sum(test_loss)/len(test_loss):>4.3f} ")
+                        eval_loss.append(-self.mll(output, yb).item())
+                    print(f" Evaluation Loss: {sum(eval_loss)/len(eval_loss):>4.3f} ")
                 if self.debug:
                     self.print_hyperparams() 
 
@@ -145,12 +147,18 @@ class MultiTaskSVGP(gpytorch.models.gp.GP):
             print(f"{name:>3} : value: {param.data}")
 
         return  
-    def posterior(self, x):
-        with torch.no_grad(), gpytorch.settings.fast_pred_var():
-            self.gp.eval()
-            self.likelihood.eval()
+    def posterior(self, x, **kwargs):
+        self.gp.eval()
+        self.likelihood.eval()
+        with gpytorch.settings.fast_pred_var():
             mvn = self.gp(x)
             mvn = self.likelihood(mvn)
 
-            return mvn
+        posterior = GPyTorchPosterior(distribution=mvn)
+        posterior = self.outcome_transform.untransform_posterior(posterior)
+        posterior_tranform = kwargs.get("posterior_tranform", None)
+        if  posterior_tranform is not None:
+            posterior = posterior_tranform(posterior)
+
+        return posterior
 

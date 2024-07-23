@@ -134,14 +134,6 @@ def from_comp_to_spectrum(expt, gp_model, np_model, c):
 
         return mean_pred, sigma_pred 
     
-def get_twod_grid(n_grid, bounds):
-    x = np.linspace(bounds[0,0],bounds[1,0], n_grid)
-    y = np.linspace(bounds[0,1],bounds[1,1], n_grid)
-    X,Y = np.meshgrid(x,y)
-    points = np.vstack([X.ravel(), Y.ravel()]).T 
-
-    return points 
-
 # Define a autophasemap dataset object
 class AutoPhaseMapDataSet(BaseDataSet):
     def __init__(self, C, q, Iq):
