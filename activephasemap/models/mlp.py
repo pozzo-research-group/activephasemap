@@ -36,19 +36,11 @@ class MLP(torch.nn.Module):
         self.verbose = kwargs.get("verbose", 1)
         self.mlp = MLPModel(c.shape[-1], z_mu.shape[-1]).to(device)
 
-    # def loss(self, z_mu_train, z_std_train, z_mu_pred, z_std_pred):
-    #     p_train = torch.distributions.Normal(z_mu_train, z_std_train)
-    #     p_pred = torch.distributions.Normal(z_mu_pred, z_std_pred)
-    #     error = torch.distributions.kl.kl_divergence(p_train, p_pred)
-
-    #     return error.mean(dim=0).sum()
-
     def loss(self, z_mu_train, z_std_train, z_mu_pred, z_std_pred):
         error_mean = torch.nn.functional.mse_loss(z_mu_train, z_mu_pred)
         error_std = torch.nn.functional.mse_loss(z_std_train, z_std_pred)
 
-        return (error_mean+error_std).sum()
-
+        return (error_mean+error_std).mean()
 
     def fit(self):
         optimizer = torch.optim.Adam(self.mlp.parameters(), lr=self.learning_rate)

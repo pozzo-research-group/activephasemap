@@ -43,10 +43,12 @@ class UVVisExperiment:
         2. spectra_x.npy - spectra in a numpy array with rows corresponds to the composition (.npy)
         3. wav.npy - wavelength vector in (num_wavelengths x ) shaped numpy array (.npy)
     """
-    def __init__(self, bounds, iter, dir):
+    def __init__(self, bounds, direc):
         self.dim = len(bounds)
         self.bounds = torch.tensor(bounds).transpose(-1, -2).to(device)
-        self.dir = dir 
+        self.dir = direc
+
+    def read_iter_data(self, iter): 
         comps, spectra = [], []
         for k in range(iter):
             comps.append(np.load(self.dir+'comps_%d.npy'%k))

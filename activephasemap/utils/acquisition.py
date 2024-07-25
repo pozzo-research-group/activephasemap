@@ -4,7 +4,7 @@ import gpytorch
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_default_dtype(torch.double)
 from botorch.utils.transforms import normalize
-import pdb 
+import pdb, time, datetime
 
 class UncertainitySelector(torch.nn.Module):
     def __init__(self, input_dim, model, bounds):
@@ -36,7 +36,7 @@ class UncertainitySelector(torch.nn.Module):
         return grid[argmax_ind,:]
 
 class CompositeModelUncertainity(torch.nn.Module):
-    def __init__(self, t, bounds, NP, MLP):
+    def __init__(self, t, bounds, NP, MLP, **kwargs):
         super().__init__()
         NP.eval()
         MLP.eval()
@@ -44,21 +44,19 @@ class CompositeModelUncertainity(torch.nn.Module):
         self.z_to_y = NP 
         self.c_to_z = MLP 
         self.bounds = bounds
-        self.input_dim = len(bounds) 
+        self.input_dim = len(bounds)
+        self.nz = kwargs.get("num_z_sample", 20) 
 
     def forward(self, x):
-        num_restarts, num_batches, _ = x.shape
-        acqv = torch.zeros((num_restarts, num_batches))
-        for nr in range(num_restarts):
-            for nb in range(num_batches):
-                z_mu, z_std = self.c_to_z.mlp(x[nr, nb, :])
-                z_dist = torch.distributions.Normal(z_mu, z_std)
-                z = z_dist.rsample(torch.Size([100]))
-                t = torch.from_numpy(self.t).repeat(100, 1, 1).to(device)
-                t = torch.swapaxes(t, 1, 2)
-                y_samples, _ = self.z_to_y.xz_to_y(t, z)
-                sigma_pred = y_samples.std(dim=0, keepdim=True)
-                acqv[nr, nb] = sigma_pred.mean()
+        z_mu, z_std = self.c_to_z.mlp(x)
+        nr, nb, d = z_mu.shape
+        z_dist = torch.distributions.Normal(z_mu, z_std)
+        z = z_dist.rsample(torch.Size([self.nz])).reshape(self.nz*nr*nb, d)
+        t = torch.from_numpy(self.t).repeat(self.nz*nr*nb, 1, 1).to(device)
+        t = torch.swapaxes(t, 1, 2)
+        y_samples, _ = self.z_to_y.xz_to_y(t, z)
+        sigma_pred = y_samples.reshape(self.nz, nr, nb, len(self.t), 1).std(dim=0)
+        acqv = sigma_pred.mean(dim=-2).squeeze(-1)
 
         return acqv
 
@@ -66,8 +64,9 @@ class CompositeModelUncertainity(torch.nn.Module):
         X = torch.rand(num_restarts, batch_size, len(self.bounds)).to(device)
         X = self.bounds[0] + (self.bounds[1] - self.bounds[0]) * X
         X.requires_grad_(True)
-        optimizer = torch.optim.Adam([X], lr=0.01)
+        optimizer = torch.optim.Adam([X], lr=0.05)
 
+        start = time.time()
         for i in range(100):
             optimizer.zero_grad()
             acqv = -self(X)
@@ -80,6 +79,8 @@ class CompositeModelUncertainity(torch.nn.Module):
                 X.data[..., j].clamp_(lb, ub)  # need to do this on the data not X itself
 
             if (i + 1) % 15 == 0:
-                print(f"Iteration {i+1:>3}/100 - Loss: {loss.item():>4.3f}")
+                end = time.time()
+                time_str =  str(datetime.timedelta(seconds=end-start))
+                print(f"({time_str:>s}) Iteration {i+1:>3}/100 - Loss: {loss.item():>4.3f}")
         
         return X[acqv.sum(dim=1).argmin(),...].detach()
