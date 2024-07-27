@@ -51,7 +51,7 @@ class UVVisExperiment:
     def read_iter_data(self, iter): 
         comps, spectra = [], []
         for k in range(iter):
-            comps.append(np.load(self.dir+'comps_%d.npy'%k))
+            comps.append(np.load(self.dir+'comps_%d.npy'%k).astype(np.double))
             spectra.append(np.load(self.dir+'spectra_%d.npy'%k))
             print('Loading data from iteration %d with shapes:'%k, comps[k].shape, spectra[k].shape)
         self.comps = np.vstack(comps)
