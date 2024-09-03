@@ -28,13 +28,13 @@ def finetune_neural_process(x, y, model, **kwargs):
     for name, param in model.named_parameters():
         if "_to_hidden.4.weight" in name:
             torch.nn.init.xavier_uniform_(param)
-            print("Finetuning %s..."%name)
+            # print("Finetuning %s..."%name)
             finetune_params.append(param)
         elif "hidden_to" in name:
             if "weight" in name:
                 torch.nn.init.xavier_uniform_(param)
                 finetune_params.append(param)
-                print("Finetuning %s..."%name)
+                # print("Finetuning %s..."%name)
         else:
             freeze_params.append(param)
     

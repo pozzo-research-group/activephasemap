@@ -42,10 +42,10 @@ class MLP(torch.nn.Module):
 
         return (error_mean+error_std).mean()
 
-    def fit(self):
+    def fit(self, use_early_stoping=True):
         optimizer = torch.optim.Adam(self.mlp.parameters(), lr=self.learning_rate)
 
-        train_ind = np.random.randint(0, len(self.c), int(0.9*len(self.c)))
+        train_ind = np.random.randint(0, len(self.c), int(0.8*len(self.c)))
         test_ind = np.setdiff1d(np.arange(len(self.c)), train_ind)
         self.train_c, self.train_z_mu, self.train_z_std = self.c[train_ind,:], self.z_mu[train_ind,:], self.z_std[train_ind,:]
         self.test_c, self.test_z_mu, self.test_z_std = self.c[test_ind,:], self.z_mu[test_ind,:], self.z_std[test_ind,:]
@@ -57,30 +57,58 @@ class MLP(torch.nn.Module):
         eval_loader = torch.utils.data.DataLoader(eval_dataset, batch_size=4, shuffle=False)
 
         self.mlp.train()
-        train_loss = []
+        train_loss, eval_loss = [], []
+        early_stopper = EarlyStopper(patience=100, min_delta=0.01)
         for epoch in range(self.num_epochs):
-            epoch_loss = []
+            epoch_train_loss = []
             for xb, yb_mu, yb_std in train_loader:
                 optimizer.zero_grad()
                 z_mu_, z_std_ = self.mlp(xb)
                 loss = self.loss(yb_mu, yb_std, z_mu_, z_std_)
                 loss.backward()
                 optimizer.step()
-                epoch_loss.append(loss.item())   
+                epoch_train_loss.append(loss.item())   
 
-            train_loss.append(sum(epoch_loss)/len(epoch_loss))
+            train_loss.append(sum(epoch_train_loss)/len(epoch_train_loss))
+
+            with torch.no_grad():
+                epoch_val_loss = []
+                for xb, yb_mu, yb_std in eval_loader:
+                    z_mu_, z_std_ = self.mlp(xb)
+                    loss = self.loss(yb_mu, yb_std, z_mu_, z_std_)
+                    epoch_val_loss.append(loss.item())
+                
+                eval_loss.append(sum(epoch_val_loss)/len(epoch_val_loss))
+
             if ((epoch) % self.verbose == 0) or (epoch==self.num_epochs-1):
                 print(
                     f"Epoch {epoch+1:>3}/{self.num_epochs} - Loss: {train_loss[-1]:>4.3f} ", end=""
                 )
-                with torch.no_grad():
-                    eval_loss = []
-                    for xb, yb_mu, yb_std in eval_loader:
-                        z_mu_, z_std_ = self.mlp(xb)
-                        loss = self.loss(yb_mu, yb_std, z_mu_, z_std_)
-                        eval_loss.append(loss.item())
-                    print(f" Evaluation Loss: {sum(eval_loss)/len(eval_loss):>4.3f} ")
+                print(f" Evaluation Loss: {eval_loss[-1]:>4.3f} ")
 
-        return train_loss        
+            if use_early_stoping and early_stopper.early_stop(eval_loss[-1]):
+                print("Early stopping...")
+                print(
+                    f"Epoch {epoch+1:>3}/{self.num_epochs} - Loss: {train_loss[-1]:>4.3f} ", end=""
+                )
+                print(f" Evaluation Loss: {eval_loss[-1]:>4.3f} ")
+                break
 
+        return train_loss, eval_loss        
 
+class EarlyStopper:
+    def __init__(self, patience=1, min_delta=0):
+        self.patience = patience
+        self.min_delta = min_delta
+        self.counter = 0
+        self.min_validation_loss = float('inf')
+
+    def early_stop(self, validation_loss):
+        if validation_loss < self.min_validation_loss:
+            self.min_validation_loss = validation_loss
+            self.counter = 0
+        elif validation_loss > (self.min_validation_loss + self.min_delta):
+            self.counter += 1
+            if self.counter >= self.patience:
+                return True
+        return False

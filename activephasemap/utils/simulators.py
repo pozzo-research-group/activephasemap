@@ -105,6 +105,7 @@ class UVVisExperiment:
         ins_ax = ax.inset_axes([loc_ax[0],loc_ax[1],0.1,0.1])
         ins_ax.plot(t, ft, **kwargs)
         ins_ax.axis('off')
+        ins_ax.set_ylim([0, 1.8])
         
         return 
 

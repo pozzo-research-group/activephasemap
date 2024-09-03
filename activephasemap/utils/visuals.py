@@ -31,6 +31,7 @@ def _inset_spectra(c, t, mu, sigma, ax, show_sigma=False, **kwargs):
             ins_ax.fill_between(t,mu-sigma, mu+sigma,
             color='grey')
         ins_ax.axis('off')
+        ins_ax.set_ylim([0,1.8])
         
         return 
 
@@ -123,26 +124,28 @@ def plot_iteration(query_idx, expt, new_x, gp_model, np_model, acquisition, z_di
     axs['A2'].set_ylabel('C2', fontsize=20) 
 
     with torch.no_grad():
-        for _ in range(5):
-            c_dim = C_train.shape[1]
-            ci = RNG.choice(C_train).reshape(1, c_dim)
+        rids = np.random.choice(C_train.shape[0], 10)
+        random_train_comps = C_train[rids,:]
+        for ci in random_train_comps:
+            ci = ci.reshape(1, C_train.shape[1])
             mu, _ = from_comp_to_spectrum(expt, gp_model, np_model, ci)
             t_ = expt.t
             axs['B2'].plot(t_, mu.cpu().squeeze(), color='grey')
-            axs['B2'].set_title('random sample p(y|c)')
-            axs['B2'].set_xlabel('t', fontsize=20)
-            axs['B2'].set_ylabel('f(t)', fontsize=20) 
+        axs['B2'].set_title('random sample p(y|c)')
+        axs['B2'].set_xlabel('t', fontsize=20)
+        axs['B2'].set_ylabel('f(t)', fontsize=20) 
 
-            z_sample = torch.randn((1, z_dim)).to(device)
+        z_samples = torch.randn((10, z_dim)).to(device)
+        for z_sample in z_samples:
             t = torch.from_numpy(t_)
             t = t.view(1, t_.shape[0], 1).to(device)
             mu, _ = np_model.xz_to_y(t, z_sample)
             axs['B1'].plot(t_, mu.cpu().squeeze(), color='grey')
-            axs['B1'].set_title('random sample p(y|z)')
-            axs['B1'].set_xlabel('t', fontsize=20)
-            axs['B1'].set_ylabel('f(t)', fontsize=20) 
+        axs['B1'].set_title('random sample p(y|z)')
+        axs['B1'].set_xlabel('t', fontsize=20)
+        axs['B1'].set_ylabel('f(t)', fontsize=20) 
 
-    plot_gpmodel_grid(axs['C'], expt, gp_model, np_model, show_sigma=False)
+    plot_gpmodel_grid(axs['C'], expt, gp_model, np_model, show_sigma=True)
 
     return fig, axs
 
