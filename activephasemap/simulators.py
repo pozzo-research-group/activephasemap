@@ -6,8 +6,21 @@ import pandas as pd
 from scipy import interpolate 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-from activephasemap.utils.visuals import MinMaxScaler, scaled_tickformat
+class MinMaxScaler:
+    def __init__(self, min, max):
+        self.min = min 
+        self.max = max 
+        self.range = max-min
 
+    def transform(self, x):
+        return (x-self.min)/self.range
+    
+    def inverse(self, xt):
+        return (self.range*xt)+self.min
+
+def scaled_tickformat(scaler, x, pos):
+    return '%.1f'%scaler.inverse(x)
+    
 class GNPPhases:
     def __init__(self, dir):
         comps = pd.read_csv(dir+'/grid.csv').to_numpy()

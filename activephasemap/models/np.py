@@ -345,7 +345,7 @@ def neural_process_loss(p_y_pred, y_target, q_target, q_context):
     # r_dim (since r_dim is dimension of normal distribution)
     kl = kl_divergence(q_target, q_context).mean(dim=0).sum()
 
-    return -log_likelihood + kl
+    return -log_likelihood + 0.01*kl
 
 def train_neural_process(model, data_loader, optimizer, **kwargs):
     loss_value = 0
