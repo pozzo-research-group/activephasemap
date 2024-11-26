@@ -28,9 +28,9 @@ from matplotlib import colormaps
 from matplotlib.cm import ScalarMappable
 import matplotlib.patches as mpatches
 
-PRETRAIN_LOC = "/mmfs1/home/kiranvad/cheme-kiranvad/activephasemap-examples/pretrained/UVVis/test_np_new_api/model.pt"
+PRETRAIN_LOC = "./pretrained/model.pt"
 
-with open('/mmfs1/home/kiranvad/cheme-kiranvad/activephasemap-examples/pretrained/UVVis/best_config.json') as f:
+with open('./pretrained/best_config.json') as f:
     best_np_config = json.load(f)
 N_LATENT = best_np_config["z_dim"]
 N_Z_DRAWS = 256
@@ -63,7 +63,7 @@ def get_twod_grid(n_grid, bounds):
 
     return points 
 
-def _inset_spectra(c, t, mu, sigma, ax, show_sigma=False, **kwargs):
+def _inset_spectra(c, t, mu, sigma, ax, show_sigma=False, uniform_yscale = None, **kwargs):
         loc_ax = ax.transLimits.transform(c)
         ins_ax = ax.inset_axes([loc_ax[0],loc_ax[1],0.1,0.1])
         ins_ax.plot(t, mu, **kwargs)
@@ -71,7 +71,8 @@ def _inset_spectra(c, t, mu, sigma, ax, show_sigma=False, **kwargs):
             ins_ax.fill_between(t,mu-sigma, mu+sigma,
             color='grey')
         ins_ax.axis('off')
-        ins_ax.set_ylim([0,1.8])
+        if uniform_yscale is not None:
+            ins_ax.set_ylim([uniform_yscale[0], uniform_yscale[1]])
         
         return 
 
@@ -146,7 +147,7 @@ def run_iteration(expt, config):
 
     print("Collecting next data points to sample by acqusition optimization...")
     bounds = torch.tensor(config["bounds"]).transpose(-1, -2).to(device)
-    acqf = XGBUncertainity(expt.t, bounds, np_model, comp_model)
+    acqf = XGBUncertainity(expt, bounds, np_model, comp_model)
     new_x = acqf.optimize(config["batch_size"])
     print_matrix(new_x)
 
@@ -218,7 +219,7 @@ def plot_model_accuracy(expt, config, result):
         plus = (mu+sigma)
         axs[0].fill_between(expt.wl, minus, plus, color='grey')
         axs[0].scatter(expt.wl, expt.spectra_normalized[i,:], color='k', s=10)
-        axs[0].set_title("(MLP) time : %d conc : %.2f"%(expt.comps[i,1], expt.comps[i,0]))
+        axs[0].set_title("C1 : %.2f C2 : %.2f"%(expt.comps[i,1], expt.comps[i,0]))
         
         # Plot the Z values comparision between trained and MLP predictions
         labels = []
@@ -257,6 +258,7 @@ def plot_iteration(expt, config, result):
               ['B1', 'B2', 'C', 'C']
               ]
     bounds = torch.tensor(config["bounds"]).transpose(-1, -2).to(device)
+
     # plot selected points
     C_train = expt.points
     bounds =  expt.bounds.cpu().numpy()
@@ -264,48 +266,53 @@ def plot_iteration(expt, config, result):
     fig, axs = plt.subplot_mosaic(layout, figsize=(4*4, 4*2))
     fig.subplots_adjust(wspace=0.5, hspace=0.5)
     axs['A1'].scatter(expt.comps[:,0], expt.comps[:,1], marker='x', color='k')
-    axs['A1'].scatter(result["comps_new"][:,0], result["comps_new"][:,1], color='tab:green')
-    axs['A1'].set_xlabel('C1', fontsize=20)
-    axs['A1'].set_ylabel('C2', fontsize=20)    
+    axs['A1'].scatter(result["comps_new"][:,0], result["comps_new"][:,1], color='tab:red')
+    axs['A1'].set_xlabel('C1')
+    axs['A1'].set_ylabel('C2')    
     axs['A1'].set_title('C sampling')
     axs['A1'].set_xlim([bounds[0,0], bounds[1,0]])
     axs['A1'].set_ylim([bounds[0,1], bounds[1,1]])
 
     # plot acqf
     C_grid_ = torch.tensor(C_grid).to(device).reshape(len(C_grid),1,2)
-    acq_values = result["acqf"](C_grid_).squeeze().cpu().numpy()
+    rx_, sigma_x_ = result["acqf"](C_grid_, return_rx_sigma=True)
+    rx = rx_.squeeze().cpu().numpy()
+    sigma_x = sigma_x_.squeeze().cpu().numpy()
+
     cmap = colormaps["magma"]
-    norm = Normalize(vmin=min(acq_values), vmax = max(acq_values))
+    norm = Normalize(vmin=min(rx), vmax = max(rx))
     mappable = ScalarMappable(norm=norm, cmap=cmap)
-    axs['A2'].tricontourf(C_grid[:,0], C_grid[:,1], acq_values, cmap=cmap, norm=norm)
-    axs['A2'].scatter(result["comps_new"][:,0], result["comps_new"][:,1], marker='x', color='tab:green')    
+    axs['B1'].tricontourf(C_grid[:,0], C_grid[:,1], rx, cmap=cmap, norm=norm)
+    axs['B1'].scatter(result["comps_new"][:,0], result["comps_new"][:,1], marker='x', color='w')    
+    divider = make_axes_locatable(axs["B1"])
+    cax = divider.append_axes('right', size='5%', pad=0.1)
+    cbar = fig.colorbar(mappable, cax=cax)
+    cbar.ax.set_ylabel(r'$r(x)$')
+    axs['B1'].set_xlabel('C1')
+    axs['B1'].set_ylabel('C2') 
+
+    norm = Normalize(vmin=min(sigma_x), vmax = max(sigma_x))
+    mappable = ScalarMappable(norm=norm, cmap=cmap)
+    axs['B2'].tricontourf(C_grid[:,0], C_grid[:,1], sigma_x, cmap=cmap, norm=norm)
+    axs['B2'].scatter(result["comps_new"][:,0], result["comps_new"][:,1], marker='x', color='w')    
+    divider = make_axes_locatable(axs["B2"])
+    cax = divider.append_axes('right', size='5%', pad=0.1)
+    cbar = fig.colorbar(mappable, cax=cax)
+    cbar.ax.set_ylabel(r"$\sigma(x)$")
+    axs['B2'].set_xlabel('C1')
+    axs['B2'].set_ylabel('C2')     
+
+    acqv = rx + sigma_x
+    norm = Normalize(vmin=0, vmax = 1)
+    mappable = ScalarMappable(norm=norm, cmap=cmap)
+    axs['A2'].tricontourf(C_grid[:,0], C_grid[:,1], acqv, cmap=cmap, norm=norm)
+    axs['A2'].scatter(result["comps_new"][:,0], result["comps_new"][:,1], marker='x', color='w')    
     divider = make_axes_locatable(axs["A2"])
     cax = divider.append_axes('right', size='5%', pad=0.1)
     cbar = fig.colorbar(mappable, cax=cax)
-    cbar.ax.set_ylabel('Acqusition value')
-    axs['A2'].set_xlabel('C1', fontsize=20)
-    axs['A2'].set_ylabel('C2', fontsize=20) 
-
-    
-    rids = np.random.choice(C_train.shape[0], 10)
-    random_train_comps = C_train[rids,:]
-    for ci in random_train_comps:
-        mu, _ = from_comp_to_spectrum(expt.t, ci, result["comp_model"], result["np_model"])
-        t_ = expt.t
-        axs['B2'].plot(t_, mu.cpu().squeeze(), color='grey')
-    axs['B2'].set_title('random sample p(y|c)')
-    axs['B2'].set_xlabel('t', fontsize=20)
-    axs['B2'].set_ylabel('f(t)', fontsize=20) 
-
-    z_samples = -5.0 + 10.0*torch.randn((20, N_LATENT)).to(device)
-    for z_sample in z_samples:
-        t = torch.from_numpy(t_)
-        t = t.view(1, t_.shape[0], 1).to(device)
-        mu, _ = result["np_model"].xz_to_y(t, z_sample)
-        axs['B1'].plot(t_, mu.cpu().squeeze(), color='grey')
-    axs['B1'].set_title('random sample p(y|z)')
-    axs['B1'].set_xlabel('t', fontsize=20)
-    axs['B1'].set_ylabel('f(t)', fontsize=20) 
+    cbar.ax.set_ylabel(r"$r_(x) + \sigma(x)$")
+    axs['A2'].set_xlabel('C1')
+    axs['A2'].set_ylabel('C2')    
 
     # plot the full evaluation on composition space
     ax = axs['C']

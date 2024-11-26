@@ -113,12 +113,13 @@ class UVVisExperiment:
 
         return ax
 
-    def _inset_spectra(self, c, t, ft, ax, **kwargs):
+    def _inset_spectra(self, c, t, ft, ax, uniform_yscale=None, **kwargs):
         loc_ax = ax.transLimits.transform(c)
         ins_ax = ax.inset_axes([loc_ax[0],loc_ax[1],0.1,0.1])
         ins_ax.plot(t, ft, **kwargs)
         ins_ax.axis('off')
-        ins_ax.set_ylim([0, 1.8])
+        if uniform_yscale is not None:
+            ins_ax.set_ylim([uniform_yscale[0], uniform_yscale[1]])
         
         return 
 
