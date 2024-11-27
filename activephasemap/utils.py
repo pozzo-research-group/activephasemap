@@ -28,10 +28,12 @@ from matplotlib import colormaps
 from matplotlib.cm import ScalarMappable
 import matplotlib.patches as mpatches
 
+import importlib.resources as pkg_resources
+
 PRETRAIN_LOC = "./pretrained/model.pt"
 
-with open('./pretrained/best_config.json') as f:
-    best_np_config = json.load(f)
+with pkg_resources.open_text("activephasemap.pretrained", "best_config.json") as file:    
+    best_np_config = json.load(file)
 N_LATENT = best_np_config["z_dim"]
 N_Z_DRAWS = 256
 xgb_model_args = {"objective": "reg:squarederror",
@@ -123,7 +125,8 @@ def run_iteration(expt, config):
 
     # Specify the Neural Process model
     np_model = NeuralProcess(best_np_config["r_dim"], N_LATENT, best_np_config["h_dim"]).to(device)
-    np_model.load_state_dict(torch.load(PRETRAIN_LOC, map_location=device, weights_only=True))
+    with pkg_resources.path("activephasemap.pretrained", "np_model.pt") as model_path:
+        np_model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
 
     print("Finetuning Neural Process model: ")
     np_model, np_loss = finetune_neural_process(expt.t, spectra_all, np_model, **np_model_args)
