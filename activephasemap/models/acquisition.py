@@ -148,7 +148,7 @@ class XGBUncertainity(BaseAcquisiton):
         if not return_rx_sigma:
             return T1+T2 
         else:
-            return T1, T2
+            return res_, T1, T2
 
 class KDEResidualEstimator(torch.nn.Module):
     """Kernel Density Estimate (KDE) for smoothing residuals with automatic bandwidth selection.

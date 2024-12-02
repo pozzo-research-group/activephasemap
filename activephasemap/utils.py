@@ -222,7 +222,8 @@ def plot_model_accuracy(expt, config, result):
         plus = (mu+sigma)
         axs[0].fill_between(expt.wl, minus, plus, color='grey')
         axs[0].scatter(expt.wl, expt.spectra_normalized[i,:], color='k', s=10)
-        axs[0].set_title("C1 : %.2f C2 : %.2f"%(expt.comps[i,1], expt.comps[i,0]))
+        res = torch.mean(torch.abs((torch.from_numpy(expt.spectra_normalized[i,:])-mu)/(sigma+1e-8)))
+        axs[0].set_title("(%.2f, %.2f) : %.2f"%(expt.comps[i,0], expt.comps[i,1], res))
         
         # Plot the Z values comparision between trained and MLP predictions
         labels = []
@@ -263,7 +264,6 @@ def plot_iteration(expt, config, result):
     bounds = torch.tensor(config["bounds"]).transpose(-1, -2).to(device)
 
     # plot selected points
-    C_train = expt.points
     bounds =  expt.bounds.cpu().numpy()
     C_grid = get_twod_grid(20, bounds)
     fig, axs = plt.subplot_mosaic(layout, figsize=(4*4, 4*2))
@@ -278,7 +278,8 @@ def plot_iteration(expt, config, result):
 
     # plot acqf
     C_grid_ = torch.tensor(C_grid).to(device).reshape(len(C_grid),1,2)
-    rx_, sigma_x_ = result["acqf"](C_grid_, return_rx_sigma=True)
+    rx_train_, rx_, sigma_x_ = result["acqf"](C_grid_, return_rx_sigma=True)
+    rx_train = rx_train_.squeeze().cpu().numpy()
     rx = rx_.squeeze().cpu().numpy()
     sigma_x = sigma_x_.squeeze().cpu().numpy()
 
@@ -286,11 +287,12 @@ def plot_iteration(expt, config, result):
     norm = Normalize(vmin=min(rx), vmax = max(rx))
     mappable = ScalarMappable(norm=norm, cmap=cmap)
     axs['B1'].tricontourf(C_grid[:,0], C_grid[:,1], rx, cmap=cmap, norm=norm)
+    axs['B1'].scatter(expt.points[:, 0], expt.points[:, 1], s=rx_train*10, edgecolor='w', facecolors='none')
     axs['B1'].scatter(result["comps_new"][:,0], result["comps_new"][:,1], marker='x', color='w')    
     divider = make_axes_locatable(axs["B1"])
     cax = divider.append_axes('right', size='5%', pad=0.1)
     cbar = fig.colorbar(mappable, cax=cax)
-    cbar.ax.set_ylabel(r'$r(x)$')
+    cbar.ax.set_ylabel(r'$ \alpha r(x)$')
     axs['B1'].set_xlabel('C1')
     axs['B1'].set_ylabel('C2') 
 
@@ -301,7 +303,7 @@ def plot_iteration(expt, config, result):
     divider = make_axes_locatable(axs["B2"])
     cax = divider.append_axes('right', size='5%', pad=0.1)
     cbar = fig.colorbar(mappable, cax=cax)
-    cbar.ax.set_ylabel(r"$\sigma(x)$")
+    cbar.ax.set_ylabel(r"$(1-\alpha) \sigma(x)$")
     axs['B2'].set_xlabel('C1')
     axs['B2'].set_ylabel('C2')     
 
@@ -313,7 +315,7 @@ def plot_iteration(expt, config, result):
     divider = make_axes_locatable(axs["A2"])
     cax = divider.append_axes('right', size='5%', pad=0.1)
     cbar = fig.colorbar(mappable, cax=cax)
-    cbar.ax.set_ylabel(r"$r_(x) + \sigma(x)$")
+    cbar.ax.set_ylabel(r"$\alpha r_(x) + (1-\alpha) \sigma(x)$")
     axs['A2'].set_xlabel('C1')
     axs['A2'].set_ylabel('C2')    
 
