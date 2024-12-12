@@ -138,24 +138,24 @@ class XGBoostAutoGrad(torch.autograd.Function):
         x_np = x.view(nr*nb, dx).detach().cpu().numpy().astype(np.float64)
 
         # Finite differences for gradient approximation
-        epsilon = 1e-4
+        epsilon = 0.5*torch.norm(x, dim=(1,2)).mean().item()
 
-        grads = torch.zeros((nr*nb, dz, dx), dtype=x.dtype, device=x.device)
-        for n in range(nr*nb):
-            for j in range(dx):
-                x_forward = x_np[n, :].copy()
-                x_backward = x_np[n, :].copy()
-                x_forward[j] += epsilon 
-                x_backward[j] -= epsilon
-                x_cd = np.stack((x_forward, x_backward))
-                xgb_cd = xgboost.DMatrix(x_cd)
-                y_cd = ctx.model.predict(xgb_cd)
-                dy_dxj = (y_cd[0,...]-y_cd[1,...])/(2*epsilon)
-                dy_dxj_tensor = torch.tensor(dy_dxj+1e-3, dtype=x.dtype, device=x.device)
-                grads[n,:,j] = dy_dxj_tensor*grad_output[n, :]
+        # Initialize gradient
+        jacobian = torch.zeros(nr*nb, dz, dx).to(x.device)
 
-        # Convert gradients to PyTorch tensors
-    
-        grad_tensor = torch.tensor(grads, dtype=x.dtype, device=x.device)
-
-        return None, grad_tensor
+        # Compute central differences for each input dimension
+        for i in range(dx):
+            perturb = np.zeros_like(x_np)
+            perturb[:,i] = epsilon
+            x_plus = xgboost.DMatrix(x_np + perturb)
+            x_minus = xgboost.DMatrix(x_np - perturb)
+            f_plus = ctx.model.predict(x_plus)  
+            f_minus = ctx.model.predict(x_minus) 
+            # Central difference approximation of the derivative
+            f_grad = (f_plus - f_minus) / (2 * epsilon)
+            f_grad_tensor = torch.tensor(f_grad, dtype=x.dtype, device=x.device)
+            jacobian[..., i] = f_grad_tensor.view(nr*nb, dz) 
+        
+        grad = torch.einsum('bij,bjk->bik', jacobian.permute(0,2,1), grad_output)
+        
+        return None, grad.permute(0,2,1)
