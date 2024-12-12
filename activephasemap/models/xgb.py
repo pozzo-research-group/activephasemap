@@ -19,8 +19,8 @@ class XGBoost(torch.nn.Module):
         """
         Train the XGBoost model with cross-validation and hyperparameter tuning.
         """
-        inputs_np = inputs.detach().cpu().numpy()
-        targets_np = targets.detach().cpu().numpy()
+        inputs_np = inputs.clone().detach().cpu().numpy()
+        targets_np = targets.clone().detach().cpu().numpy()
         
         dtrain = xgboost.DMatrix(inputs_np, label=targets_np)
 
@@ -75,17 +75,10 @@ class XGBoost(torch.nn.Module):
         """
         Predict outputs for given inputs using the trained model.
         """
-        if self.model is None:
-            raise ValueError("The model has not been trained yet.")
-        nr, nb, dx = inputs.shape
-        inputs_2d = inputs.view(nr*nb, dx)
-        inputs_np = inputs_2d.detach().cpu().numpy()
-        dmatrix = xgboost.DMatrix(inputs_np)
-        preds = self.model.predict(dmatrix)
-        preds_tensor = torch.tensor(preds, dtype=inputs.dtype, device=inputs.device)
-        _, dz = preds_tensor.shape
-        z_mu = preds_tensor.view(nr, nb, dz)[...,:int(dz/2)]
-        z_std = torch.abs(preds_tensor.view(nr, nb, dz)[..., int(dz/2):])  
+        preds = XGBoostAutoGrad.apply(self.model, inputs)
+        _, _, dz = preds.shape
+        z_mu = preds[...,:int(dz/2)]
+        z_std = torch.abs(preds[..., int(dz/2):]) 
 
         return z_mu, z_std
 
@@ -110,33 +103,59 @@ class XGBoost(torch.nn.Module):
         """
         return self.predict(inputs)
 
-    def backward(self, grad_output, inputs):
+class XGBoostAutoGrad(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, model, x):
+        """
+        Predict outputs for given inputs using the trained model.
+        """
+        ctx.save_for_backward(x)
+        ctx.model = model
+        nr, nb, dx = x.shape
+        x_2d = x.view(nr*nb, dx)
+        x_np = x_2d.clone().detach().cpu().numpy()
+        dmatrix = xgboost.DMatrix(x_np)
+        preds = model.predict(dmatrix)
+        if preds.ndim==1:
+            ny = 1
+        else:
+            ny = preds.shape[-1]
+        
+        preds_tensor = torch.tensor(preds, dtype=x.dtype, device=x.device).view(nr, nb, ny)
+
+        return preds_tensor
+
+    @staticmethod
+    def backward(ctx, grad_output):
         """
         Backward pass: compute gradients w.r.t. the inputs using finite differences.
         """
-        if self.model is None:
-            raise ValueError("The model has not been trained yet.")
-        
-        inputs_np = inputs.detach().cpu().numpy()
-        dtest = xgboost.DMatrix(inputs_np)
-        preds = self.model.predict(dtest, output_margin=True)  # Get raw predictions (margins)
+        x, = ctx.saved_tensors
+        _, _, dx = x.shape
+        nr, nb, dz = grad_output.shape
+
+        x_np = x.view(nr*nb, dx).detach().cpu().numpy().astype(np.float64)
 
         # Finite differences for gradient approximation
-        epsilon = 1e-5
-        grads = np.zeros_like(inputs_np)
-        for i in range(inputs_np.shape[1]):  # Loop over each feature
-            perturbed_inputs = inputs_np.copy()
-            perturbed_inputs[:, i] += epsilon  # Apply small perturbation to the i-th feature
-            perturbed_dmatrix = xgboost.DMatrix(perturbed_inputs)
-            perturbed_preds = self.model.predict(perturbed_dmatrix, output_margin=True)
-            
-            # Compute gradient approximation for the i-th feature
-            grads[:, i] = (perturbed_preds - preds) / epsilon
+        epsilon = 1e-4
+
+        grads = torch.zeros((nr*nb, dz, dx), dtype=x.dtype, device=x.device)
+        for n in range(nr*nb):
+            for j in range(dx):
+                x_forward = x_np[n, :].copy()
+                x_backward = x_np[n, :].copy()
+                x_forward[j] += epsilon 
+                x_backward[j] -= epsilon
+                x_cd = np.stack((x_forward, x_backward))
+                xgb_cd = xgboost.DMatrix(x_cd)
+                y_cd = ctx.model.predict(xgb_cd)
+                dy_dxj = (y_cd[0,...]-y_cd[1,...])/(2*epsilon)
+                dy_dxj_tensor = torch.tensor(dy_dxj+1e-3, dtype=x.dtype, device=x.device)
+                grads[n,:,j] = dy_dxj_tensor*grad_output[n, :]
 
         # Convert gradients to PyTorch tensors
-        grad_input = torch.tensor(grads, dtype=inputs.dtype, device=inputs.device)
-        
-        # Scale by chain rule with grad_output from subsequent layers
-        grad_input = grad_input * grad_output.unsqueeze(1)
+    
+        grad_tensor = torch.tensor(grads, dtype=x.dtype, device=x.device)
 
-        return grad_input
+        return None, grad_tensor
