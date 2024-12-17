@@ -2,6 +2,8 @@ import torch
 import xgboost
 import numpy as np
 from sklearn.model_selection import ParameterGrid
+from sklearn.model_selection import train_test_split
+
 import pdb
 
 class XGBoost(torch.nn.Module):
@@ -25,7 +27,13 @@ class XGBoost(torch.nn.Module):
         dtrain = xgboost.DMatrix(inputs_np, label=targets_np)
 
         # Use cross-validation to evaluate the best parameters if param_grid is provided
-        param_grid = {"eta":[0.002, 0.4, 0.8], "max_depth": [2, 4, 6, 10]}
+        # param_grid = {"eta":[0.002, 0.4, 0.8], "max_depth": [2, 4, 6, 10]}
+        param_grid = {'max_depth': [3, 5, 7, 15, 25],
+                      'learning_rate': [0.01, 0.1, 0.2],
+                      'subsample': [0.8, 1],
+                      'colsample_bytree': [0.8, 1],
+                      'gamma': [0, 0.1, 0.2]
+                      }
         if param_grid:
             best_params = None
             best_score = float("inf")
@@ -49,11 +57,12 @@ class XGBoost(torch.nn.Module):
             self.params = best_params  # Update the model's parameters with the best ones
 
         # Train the model using the best parameters
-        num_samples = inputs_np.shape[0]
-        split_idx = int(0.8 * num_samples)
-        train_inputs_np, eval_inputs_np = inputs_np[:split_idx], inputs_np[split_idx:]
-        train_targets_np, eval_targets_np = targets_np[:split_idx], targets_np[split_idx:]
-        
+        train_inputs_np, eval_inputs_np, train_targets_np, eval_targets_np = train_test_split(inputs_np, 
+                                                                                              targets_np, 
+                                                                                              test_size=0.2, 
+                                                                                              random_state=42
+                                                                                              )
+
         # Create DMatrix for train and eval sets
         dtrain = xgboost.DMatrix(train_inputs_np, label=train_targets_np)
         deval = xgboost.DMatrix(eval_inputs_np, label=eval_targets_np)
@@ -132,8 +141,8 @@ class XGBoostAutoGrad(torch.autograd.Function):
         Backward pass: compute gradients w.r.t. the inputs using finite differences.
         """
         x, = ctx.saved_tensors
-        _, _, dx = x.shape
-        nr, nb, dz = grad_output.shape
+        nr, nb, dx = x.shape
+        _, _, dz = grad_output.shape
 
         x_np = x.view(nr*nb, dx).detach().cpu().numpy().astype(np.float64)
 
@@ -152,10 +161,10 @@ class XGBoostAutoGrad(torch.autograd.Function):
             f_plus = ctx.model.predict(x_plus)  
             f_minus = ctx.model.predict(x_minus) 
             # Central difference approximation of the derivative
-            f_grad = (f_plus - f_minus) / (2 * epsilon)
+            f_grad = (f_plus - f_minus) / (2 * epsilon + 1e-3)
             f_grad_tensor = torch.tensor(f_grad, dtype=x.dtype, device=x.device)
             jacobian[..., i] = f_grad_tensor.view(nr*nb, dz) 
         
-        grad = torch.einsum('bij,bjk->bik', jacobian.permute(0,2,1), grad_output)
+        grad = torch.einsum('bij,bjk->bik', jacobian.permute(0,2,1), grad_output.view(nr*nb, dz, 1))
         
-        return None, grad.permute(0,2,1)
+        return None, grad.view(nr, nb, dx)

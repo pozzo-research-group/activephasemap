@@ -15,7 +15,7 @@ class BaseAcquisiton(torch.nn.Module):
         self.c_to_z = c2z 
         self.bounds = bounds
         self.input_dim = len(bounds)
-        self.nz = kwargs.get("num_z_sample", 20) 
+        self.nz = kwargs.get("num_z_sample", 128) 
 
         self.train_x = torch.from_numpy(expt.comps).to(device)
         self.train_y = torch.from_numpy(expt.spectra_normalized).to(device)
@@ -32,7 +32,7 @@ class BaseAcquisiton(torch.nn.Module):
         X = torch.rand(num_restarts, batch_size, len(self.bounds)).to(device)
         X = self.bounds[0] + (self.bounds[1] - self.bounds[0]) * X
         X.requires_grad_(True)
-        optimizer = torch.optim.Adam([X], lr=0.005)
+        optimizer = torch.optim.Adam([X], lr=0.1)
 
         start = time.time()
         for i in range(n_iterations):
