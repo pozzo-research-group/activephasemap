@@ -18,6 +18,7 @@ from activephasemap.models.utils import finetune_neural_process
 from activephasemap.models.xgb import XGBoost
 from activephasemap.models.acquisition import XGBUncertainity
 from activephasemap.simulators import UVVisExperiment, MinMaxScaler, scaled_tickformat
+from apdist.distances import AmplitudePhaseDistance as dist
 
 RNG = np.random.default_rng()
 
@@ -222,8 +223,12 @@ def plot_model_accuracy(expt, config, result):
         plus = (mu+sigma)
         axs[0].fill_between(expt.wl, minus, plus, color='grey')
         axs[0].scatter(expt.wl, expt.spectra_normalized[i,:], color='k', s=10)
-        res = torch.mean(torch.abs((torch.from_numpy(expt.spectra_normalized[i,:])-mu)/(sigma+1e-8)))
-        axs[0].set_title("(%.2f, %.2f) : %.2f"%(expt.comps[i,0], expt.comps[i,1], res))
+        mu_norm = (mu - min(mu))/(max(mu)-min(mu))
+        spectra_i_norm =  (expt.spectra_normalized[i,:] - min(expt.spectra_normalized[i,:])) \
+        /(max(expt.spectra_normalized[i,:])-min(expt.spectra_normalized[i,:]))
+        amplitude, phase = dist(expt.t, spectra_i_norm, mu_norm)
+        error = 0.5*(amplitude+phase)
+        axs[0].set_title("(%.2f, %.2f) : %.2f"%(expt.comps[i,0], expt.comps[i,1], error))
         
         # Plot the Z values comparision between trained and MLP predictions
         labels = []

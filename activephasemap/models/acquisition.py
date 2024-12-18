@@ -49,7 +49,7 @@ class BaseAcquisiton(torch.nn.Module):
             if (i + 1) % 50 == 0:
                 end = time.time()
                 time_str =  str(datetime.timedelta(seconds=end-start))
-                print(f"({time_str:>s}) Iteration {i+1:>3}/{n_iterations:>3} - Loss: {loss.item():>4.3f}")
+                print(f"({time_str:>s}) Iteration {i+1:>3}/{n_iterations:>3} - Loss: {loss.item():>4.3f}; dX: {X.grad.mean():>.2e}")
         
         return X[acqv.sum(dim=1).argmin(),...].clone().detach()
 
