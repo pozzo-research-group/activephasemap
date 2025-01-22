@@ -1,0 +1,9 @@
+botorch
+matplotlib
+numpy
+pandas
+seaborn
+openpyxl
+Cython
+cffi 
+git+https://github.com/kiranvad/warping.git
