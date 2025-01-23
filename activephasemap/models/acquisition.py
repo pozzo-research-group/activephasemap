@@ -1,13 +1,30 @@
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 import torch 
-import gpytorch
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_default_dtype(torch.double)
-from botorch.utils.transforms import normalize
-import pdb, time, datetime
+import time, datetime
 from typing import Union
 
 class BaseAcquisiton(torch.nn.Module):
+    """
+    Abstract base class for acquisition functions used in Bayesian optimization.
+
+    Attributes:
+        expt (object): Experimental data containing components and normalized spectra.
+        bounds (tuple): Bounds for the input variables, specified as (lower_bound, upper_bound).
+        z_to_y (callable): Function to map latent space variables (z) to output space (y).
+        c_to_z (callable): Function to map input variables (x) to latent space (z).
+        input_dim (int): Dimensionality of the input space.
+        nz (int): Number of samples in the latent space for Monte Carlo integration.
+        train_x (torch.Tensor): Training input data from the experiment.
+        train_y (torch.Tensor): Training target data (normalized spectra) from the experiment.
+
+    Methods:
+        forward(x):
+            Abstract method for evaluating the acquisition function.
+        optimize(batch_size, num_restarts=8, n_iterations=200):
+            Optimizes the acquisition function to find the best input point(s).
+    """
     def __init__(self, expt, bounds, z2y, c2z, **kwargs):
         super().__init__()
         self.expt = expt
@@ -24,11 +41,28 @@ class BaseAcquisiton(torch.nn.Module):
     @abstractmethod
     def forward(self, x):
         """
-        This method must be implemented by any subclass of BaseClass.
+        Abstract method to evaluate the acquisition function.
+
+        Args:
+            x (torch.Tensor): Input points to evaluate, shape (n_samples, input_dim).
+
+        Returns:
+            torch.Tensor: Acquisition values at the input points, shape (n_samples,).
         """
         pass
 
     def optimize(self, batch_size, num_restarts=8, n_iterations=200):
+        """
+        Optimizes the acquisition function to find the best input point(s).
+
+        Args:
+            batch_size (int): Number of input points to optimize jointly.
+            num_restarts (int, optional): Number of random restarts for optimization. Default is 8.
+            n_iterations (int, optional): Number of optimization iterations. Default is 200.
+
+        Returns:
+            torch.Tensor: Optimal input point(s) found, shape (batch_size, input_dim).
+        """
         X = torch.rand(num_restarts, batch_size, len(self.bounds)).to(device)
         X = self.bounds[0] + (self.bounds[1] - self.bounds[0]) * X
         X.requires_grad_(True)
@@ -54,10 +88,29 @@ class BaseAcquisiton(torch.nn.Module):
         return X[acqv.sum(dim=1).argmin(),...].clone().detach()
 
 class CompositeModelUncertainity(BaseAcquisiton):
+    """
+    Acquisition function using uncertainty in composite models to guide optimization.
+
+    Attributes:
+        expt, bounds, z_to_y, c_to_z: Inherited from BaseAcquisition.
+
+    Methods:
+        forward(x):
+            Evaluates the acquisition function based on uncertainty in predictions.
+    """
     def __init__(self, expt, bounds, NP, MLP, **kwargs):
         super().__init__(expt, bounds, NP, MLP, **kwargs)
 
     def forward(self, x):
+        """
+        Evaluates the acquisition function based on uncertainty in predictions.
+
+        Args:
+            x (torch.Tensor): Input points to evaluate, shape (n_restarts, batch_size, input_dim).
+
+        Returns:
+            torch.Tensor: Acquisition values, shape (n_restarts, batch_size).
+        """
         z_mu, z_std = self.c_to_z.mlp(x)       
         nr, nb, d = z_mu.shape
         z_dist = torch.distributions.Normal(z_mu, z_std)

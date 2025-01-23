@@ -1,28 +1,23 @@
-import os, sys, time, shutil, pdb, json
+import os, shutil, json
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
-from random import randint
-start = time.time()
 
 import torch
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_default_dtype(torch.double)
-end = time.time()
-print("Importing torch took : ", end-start)
 
 from botorch.utils.sampling import draw_sobol_samples
 
-from activephasemap.models.np import NeuralProcess, context_target_split
+from activephasemap.models.np import NeuralProcess
 from activephasemap.models.utils import finetune_neural_process
 from activephasemap.models.xgb import XGBoost
 from activephasemap.models.acquisition import XGBUncertainity
-from activephasemap.simulators import UVVisExperiment, MinMaxScaler, scaled_tickformat
+from activephasemap.simulators import  MinMaxScaler, scaled_tickformat
 from apdist.distances import AmplitudePhaseDistance as dist
 
 RNG = np.random.default_rng()
 
-import seaborn as sns 
 from matplotlib.colors import Normalize
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib import colormaps 
@@ -50,6 +45,23 @@ np_model_args = {"num_iterations": 1000,
                  }
 
 def initialize_points(bounds, n_init_points, device):
+    """
+    Initialize a set of points using Sobol sequences within the specified bounds.
+
+    Parameters
+    ----------
+    bounds : torch.Tensor
+        The bounds within which the initial points should be generated.
+    n_init_points : int
+        The number of initial points to generate.
+    device : torch.device
+        The device (CPU or GPU) where the points will be stored.
+
+    Returns
+    -------
+    torch.Tensor
+        The initialized points.
+    """
     if n_init_points < 1:
         init_x = torch.zeros(1, 1).to(device)
     else:
@@ -59,6 +71,21 @@ def initialize_points(bounds, n_init_points, device):
     return init_x
 
 def get_twod_grid(n_grid, bounds):
+    """
+    Generate a 2D grid of points within the specified bounds.
+
+    Parameters
+    ----------
+    n_grid : int
+        The number of grid points along each dimension.
+    bounds : np.ndarray
+        The bounds of the grid in 2D space.
+
+    Returns
+    -------
+    np.ndarray
+        A 2D array of points in the grid.
+    """
     x = np.linspace(bounds[0,0],bounds[1,0], n_grid)
     y = np.linspace(bounds[0,1],bounds[1,1], n_grid)
     X,Y = np.meshgrid(x,y)
@@ -67,20 +94,56 @@ def get_twod_grid(n_grid, bounds):
     return points 
 
 def _inset_spectra(c, t, mu, sigma, ax, show_sigma=False, uniform_yscale = None, **kwargs):
-        loc_ax = ax.transLimits.transform(c)
-        ins_ax = ax.inset_axes([loc_ax[0],loc_ax[1],0.1,0.1])
-        ins_ax.plot(t, mu, **kwargs)
-        if show_sigma:
-            ins_ax.fill_between(t,mu-sigma, mu+sigma,
-            color='grey')
-        ins_ax.axis('off')
-        if uniform_yscale is not None:
-            ins_ax.set_ylim([uniform_yscale[0], uniform_yscale[1]])
-        
-        return 
+    """
+    Create an inset plot for the spectra at a given location on the main plot.
+
+    Parameters
+    ----------
+    c : tuple
+        The coordinates where the inset plot will be positioned.
+    t : np.ndarray
+        The time or wavelength values.
+    mu : np.ndarray
+        The mean values of the spectra.
+    sigma : np.ndarray
+        The standard deviation values of the spectra.
+    ax : matplotlib.axes.Axes
+        The main axes of the plot to which the inset will be added.
+    show_sigma : bool, optional
+        Whether to show the sigma as a shaded region, by default False.
+    uniform_yscale : tuple, optional
+        The y-axis limits for the inset plot, by default None.
+
+    Returns
+    -------
+    None
+    """
+    loc_ax = ax.transLimits.transform(c)
+    ins_ax = ax.inset_axes([loc_ax[0],loc_ax[1],0.1,0.1])
+    ins_ax.plot(t, mu, **kwargs)
+    if show_sigma:
+        ins_ax.fill_between(t,mu-sigma, mu+sigma,
+        color='grey')
+    ins_ax.axis('off')
+    if uniform_yscale is not None:
+        ins_ax.set_ylim([uniform_yscale[0], uniform_yscale[1]])
+    
+    return 
 
 @torch.no_grad
 def print_matrix(A):
+    """
+    Print the matrix A in a human-readable format.
+
+    Parameters
+    ----------
+    A : torch.Tensor
+        The matrix to be printed.
+
+    Returns
+    -------
+    None
+    """
     A = pd.DataFrame(A.cpu().numpy())
     A.columns = ['']*A.shape[1]
     print(A.to_string())
@@ -88,7 +151,26 @@ def print_matrix(A):
 """ Helper functions """
 @torch.no_grad()
 def featurize_spectra(np_model, comps_all, spectra_all):
-    """ Obtain latent space embedding from spectra.
+    """
+    Generate latent space embeddings from spectra using a Neural Process model.
+
+    Parameters
+    ----------
+    np_model : NeuralProcess
+        The trained Neural Process model.
+    comps_all : np.ndarray
+        The compositions of the samples.
+    spectra_all : np.ndarray
+        The spectra of the samples.
+
+    Returns
+    -------
+    torch.Tensor
+        The compositions in the latent space.
+    torch.Tensor
+        The mean values of the latent space representations.
+    torch.Tensor
+        The standard deviation values of the latent space representations.
     """
     num_samples, n_domain = spectra_all.shape
     spectra = torch.zeros((num_samples, n_domain)).to(device)
@@ -111,10 +193,20 @@ def featurize_spectra(np_model, comps_all, spectra_all):
     return train_x, z_mean, z_std
 
 def run_iteration(expt, config):
-    """ Perform a single iteration of active phasemapping.
+    """
+    Perform a single iteration of active phasemapping using a surrogate model.
 
-    helper function to run a single iteration given 
-    all the compositions and spectra obtained so far. 
+    Parameters
+    ----------
+    expt : UVVisExperiment
+        The current experimental data.
+    config : dict
+        The configuration settings for the iteration.
+
+    Returns
+    -------
+    dict
+        A dictionary containing the results of the iteration.
     """
     # assemble data for surrogate model training  
     comps_all = expt.comps 
@@ -168,6 +260,29 @@ def run_iteration(expt, config):
     return result
 
 def from_comp_to_spectrum(t, c, comp_model, np_model, return_mlp_outputs=False):
+    """
+    Generate a spectrum prediction from composition using a composition model and Neural Process model.
+
+    Parameters
+    ----------
+    t : np.ndarray
+        The time or wavelength values.
+    c : np.ndarray
+        The composition values.
+    comp_model : XGBoost
+        The trained composition model.
+    np_model : NeuralProcess
+        The trained Neural Process model.
+    return_mlp_outputs : bool, optional
+        Whether to return the MLP outputs, by default False.
+
+    Returns
+    -------
+    np.ndarray
+        The predicted mean spectrum.
+    np.ndarray
+        The predicted standard deviation of the spectrum.
+    """
     ci = torch.tensor(c).to(device)
     z_mu, z_std = comp_model.predict(ci.view(1,1,ci.shape[0]))   
     z_dist = torch.distributions.Normal(z_mu.squeeze(), z_std.squeeze())
@@ -189,10 +304,21 @@ def from_comp_to_spectrum(t, c, comp_model, np_model, return_mlp_outputs=False):
 
 @torch.no_grad()
 def plot_model_accuracy(expt, config, result):
-    """ Plot accuracy of model predictions of experimental data
+    """
+    Plot the accuracy of model predictions against the experimental data.
 
-    This provides a qualitative understanding of current model 
-    on training data.
+    Parameters
+    ----------
+    expt : UVVisExperiment
+        The current experimental data.
+    config : dict
+        The configuration settings for the plot.
+    result : dict
+        The results of the model predictions.
+
+    Returns
+    -------
+    None
     """
 
     print("Creating plots to visualize training data predictions...")
@@ -263,6 +389,23 @@ def plot_model_accuracy(expt, config, result):
 
 @torch.no_grad()
 def plot_iteration(expt, config, result):
+    """
+    Plot the current iteration of the active phasemapping process.
+
+    Parameters
+    ----------
+    expt : UVVisExperiment
+        The current experimental data.
+    config : dict
+        The configuration settings for the iteration.
+    result : dict
+        The results of the current iteration.
+
+    Returns
+    -------
+    tuple
+        The figure and axes of the plot.
+    """
     layout = [['A1','A2', 'C', 'C'], 
               ['B1', 'B2', 'C', 'C']
               ]

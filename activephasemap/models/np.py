@@ -4,9 +4,7 @@ from torch.nn import functional as F
 from torch.distributions import Normal
 from random import randint
 from torch.distributions.kl import kl_divergence
-
 import numpy as np            
-import matplotlib.pyplot as plt
 
 def context_target_split(x, y, num_context, num_extra_target):
     """Given inputs x and their value y, return random subsets of points for
@@ -348,6 +346,40 @@ def neural_process_loss(p_y_pred, y_target, q_target, q_context):
     return -log_likelihood + 0.01*kl
 
 def train_neural_process(model, data_loader, optimizer, **kwargs):
+    """
+    Train a neural process model using a given dataset, optimizer, and loss function.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        The neural process model to be trained. The model should implement methods for context-target 
+        splits and prediction.
+    data_loader : torch.utils.data.DataLoader
+        DataLoader containing the training data. Each batch is expected to provide input-output pairs 
+        in the form of tensors `(x, y)`.
+    optimizer : torch.optim.Optimizer
+        Optimizer for updating the model parameters during training.
+    **kwargs : dict
+        Additional arguments for flexibility, not explicitly used in the function.
+
+    Returns
+    -------
+    model : torch.nn.Module
+        The trained neural process model with updated weights.
+    optimizer : torch.optim.Optimizer
+        The optimizer with updated states after training.
+    float
+        The average loss value computed over all batches during training.
+
+    Notes
+    -----
+    - The function splits the input data into context and target points at each iteration.
+    - The loss is computed based on predictions of the neural process and backpropagated 
+      for weight updates.
+    - The number of context and target points are sampled randomly in each iteration to simulate 
+      diverse scenarios for the neural process.
+
+    """
     loss_value = 0
     for i, data in enumerate(data_loader):
         optimizer.zero_grad()

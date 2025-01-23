@@ -4,13 +4,42 @@ import numpy as np
 from sklearn.model_selection import ParameterGrid
 from sklearn.model_selection import train_test_split
 
-import pdb
-
 class XGBoost(torch.nn.Module):
     """
     A PyTorch-compatible XGBoost model with training, prediction, saving, loading, 
     and backward pass support.
+
+    This class wraps the XGBoost model to integrate it with PyTorch, enabling 
+    its use in workflows requiring forward and backward passes.
+
+    Parameters
+    ----------
+    params : dict
+        Dictionary of hyperparameters for the XGBoost model.
+
+    Attributes
+    ----------
+    params : dict
+        Hyperparameters for the XGBoost model.
+    model : xgboost.Booster or None
+        Trained XGBoost model. None if the model has not been trained yet.
+    evals_result : dict
+        Dictionary storing evaluation results during training.
+
+    Methods
+    -------
+    train(inputs, targets)
+        Train the XGBoost model with cross-validation and hyperparameter tuning.
+    predict(inputs)
+        Predict outputs for given inputs using the trained model.
+    save(path)
+        Save the trained model to the specified path.
+    load(path)
+        Load a trained model from the specified path.
+    forward(inputs)
+        Forward pass: call predict internally.
     """
+
     def __init__(self, params):
         super().__init__()
         self.params = params
@@ -20,6 +49,31 @@ class XGBoost(torch.nn.Module):
     def train(self, inputs, targets):
         """
         Train the XGBoost model with cross-validation and hyperparameter tuning.
+
+        Parameters
+        ----------
+        inputs : torch.Tensor
+            Input tensor of shape (n_samples, n_features).
+        targets : torch.Tensor
+            Target tensor of shape (n_samples,).
+
+        Returns
+        -------
+        train_loss : list of float
+            Training loss values for each iteration.
+        eval_loss : list of float
+            Evaluation loss values for each iteration.
+
+        Notes
+        -----
+        - Hyperparameter tuning is performed using a parameter grid.
+        - Early stopping is applied based on evaluation loss.
+
+        Raises
+        ------
+        ValueError
+            If no hyperparameter combination improves the performance.
+
         """
         inputs_np = inputs.clone().detach().cpu().numpy()
         targets_np = targets.clone().detach().cpu().numpy()
@@ -83,7 +137,26 @@ class XGBoost(torch.nn.Module):
     def predict(self, inputs):
         """
         Predict outputs for given inputs using the trained model.
+
+        Parameters
+        ----------
+        inputs : torch.Tensor
+            Input tensor of shape (n_samples, n_features).
+
+        Returns
+        -------
+        z_mu : torch.Tensor
+            Predicted mean tensor of shape (n_samples, n_outputs).
+        z_std : torch.Tensor
+            Predicted standard deviation tensor of shape (n_samples, n_outputs).
+
+        Raises
+        ------
+        ValueError
+            If the model has not been trained.
+
         """
+
         preds = XGBoostAutoGrad.apply(self.model, inputs)
         _, _, dz = preds.shape
         z_mu = preds[...,:int(dz/2)]
@@ -94,6 +167,20 @@ class XGBoost(torch.nn.Module):
     def save(self, path):
         """
         Save the trained model to the specified path.
+
+        Parameters
+        ----------
+        path : str
+            File path where the model should be saved.
+
+        Raises
+        ------
+        ValueError
+            If the model has not been trained.
+
+        Examples
+        --------
+        >>> model.save("xgboost_model.json")
         """
         if self.model is None:
             raise ValueError("The model has not been trained yet.")
@@ -102,6 +189,15 @@ class XGBoost(torch.nn.Module):
     def load(self, path):
         """
         Load a trained model from the specified path.
+
+        Parameters
+        ----------
+        path : str
+            File path from which the model should be loaded.
+
+        Examples
+        --------
+        >>> model.load("xgboost_model.json")
         """
         self.model = xgboost.Booster()
         self.model.load_model(path)
@@ -109,15 +205,58 @@ class XGBoost(torch.nn.Module):
     def forward(self, inputs):
         """
         Forward pass: call predict internally.
+
+        Parameters
+        ----------
+        inputs : torch.Tensor
+            Input tensor of shape (n_samples, n_features).
+
+        Returns
+        -------
+        z_mu : torch.Tensor
+            Predicted mean tensor of shape (n_samples, n_outputs).
+        z_std : torch.Tensor
+            Predicted standard deviation tensor of shape (n_samples, n_outputs).
         """
         return self.predict(inputs)
 
 class XGBoostAutoGrad(torch.autograd.Function):
+    """
+    Custom autograd Function for integrating XGBoost with PyTorch.
 
+    This class provides forward and backward methods to enable gradient 
+    computation for XGBoost predictions.
+
+    Methods
+    -------
+    forward(ctx, model, x)
+        Predict outputs for given inputs using the trained model.
+    backward(ctx, grad_output)
+        Compute gradients w.r.t. the inputs using finite differences.
+    """
     @staticmethod
     def forward(ctx, model, x):
         """
         Predict outputs for given inputs using the trained model.
+
+        Parameters
+        ----------
+        ctx : torch.autograd.Function
+            Context object to save information for backward computation.
+        model : xgboost.Booster
+            Trained XGBoost model.
+        x : torch.Tensor
+            Input tensor of shape (n_batches, batch_size, n_features).
+
+        Returns
+        -------
+        torch.Tensor
+            Predicted outputs tensor of shape (n_batches, batch_size, n_outputs).
+
+        Raises
+        ------
+        ValueError
+            If the model is not trained or input dimensions are incorrect.
         """
         ctx.save_for_backward(x)
         ctx.model = model
@@ -139,6 +278,30 @@ class XGBoostAutoGrad(torch.autograd.Function):
     def backward(ctx, grad_output):
         """
         Backward pass: compute gradients w.r.t. the inputs using finite differences.
+
+        Parameters
+        ----------
+        ctx : torch.autograd.Function
+            Context object containing saved tensors and model.
+        grad_output : torch.Tensor
+            Gradient of the loss w.r.t. the outputs.
+
+        Returns
+        -------
+        None
+            Gradients w.r.t. the model (not computed).
+        torch.Tensor
+            Gradients w.r.t. the inputs.
+
+        Notes
+        -----
+        - Gradients are approximated using central finite differences.
+        - The computation is resource-intensive and may be slow for large datasets.
+
+        Raises
+        ------
+        ValueError
+            If input dimensions are inconsistent with the forward pass.
         """
         x, = ctx.saved_tensors
         nr, nb, dx = x.shape
