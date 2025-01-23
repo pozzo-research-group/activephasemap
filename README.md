@@ -21,7 +21,9 @@ pip install botorch
 pip install matplotlib pandas openpyxl seaborn torchvision
 ```
 
-3. Install `activephasemap` from the repo:
+3. Install the `apdist` package from [here](https://github.com/kiranvad/Amplitude-Phase-Distance/tree/main)
+
+4. Install `activephasemap` from the repo:
 ```bash
 pip install -e .
 ```
@@ -30,4 +32,4 @@ or directly from github:
 pip install git+https://github.com/pozzo-research-group/activephasemap.git
 ``` 
 
-4. (optionally) Install autophasemap following instructions [here](https://github.com/pozzo-research-group/autophasemap)
+For an application to creating a differentiable self-driving labs of gold nanoparticles, see [here](https://github.com/pozzo-research-group/papers/tree/activephasemap-preprint/seed-AuNP-phasemaps)
