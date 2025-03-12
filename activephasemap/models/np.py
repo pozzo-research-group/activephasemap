@@ -7,6 +7,7 @@ from torch.distributions.kl import kl_divergence
 
 import numpy as np            
 import matplotlib.pyplot as plt
+import pdb 
 
 def context_target_split(x, y, num_context, num_extra_target):
     """Given inputs x and their value y, return random subsets of points for
@@ -39,6 +40,21 @@ def context_target_split(x, y, num_context, num_extra_target):
     y_target = y[:, locations, :]
     return x_context, y_context, x_target, y_target
 
+class FeedForwardNeuralNetwork(torch.nn.Sequential):
+    def __init__(self, dimensions, activation, dtype=torch.float64, device="cpu"):
+        super().__init__()
+        for i in range(len(dimensions) - 2):
+            self.add_module('linear%d' % i, torch.nn.Linear(
+                dimensions[i], dimensions[i + 1], dtype=dtype, device=device)
+            )
+            if i < len(dimensions) - 2:
+                if activation == "tanh":
+                    self.add_module('tanh%d' % i, torch.nn.Tanh())
+                elif activation == "relu":
+                    self.add_module('relu%d' % i, torch.nn.ReLU(inplace=True))
+                else:
+                    raise NotImplementedError("Activation type %s is not supported" % activation)
+
 class Encoder(nn.Module):
     """Maps an (x_i, y_i) pair to a representation r_i.
 
@@ -56,7 +72,7 @@ class Encoder(nn.Module):
     r_dim : int
         Dimension of output representation r.
     """
-    def __init__(self, x_dim, y_dim, h_dim, r_dim):
+    def __init__(self, x_dim, y_dim, h_dim, r_dim, n_blocks=5):
         super().__init__()
 
         self.x_dim = x_dim
@@ -64,11 +80,17 @@ class Encoder(nn.Module):
         self.h_dim = h_dim
         self.r_dim = r_dim
 
-        layers = [nn.Linear(self.x_dim + self.y_dim,self.h_dim),
-                  nn.Sigmoid(),
-                  nn.Linear(self.h_dim, self.h_dim),
-                  nn.Sigmoid(),
-                  nn.Linear(self.h_dim, self.r_dim)]
+        blocks = []
+        for _ in range(n_blocks):
+            blocks.append(nn.Linear(self.h_dim, self.h_dim))
+            blocks.append(nn.Sigmoid())
+        head = [nn.Linear(self.x_dim + self.y_dim, self.h_dim), nn.Sigmoid()]
+        tail = [nn.Linear(self.h_dim, self.r_dim)]
+        layers = []
+        layers.append(head)
+        layers.append(blocks)
+        layers.append(tail)
+        layers = [x for xs in layers for x in xs]
 
         self.input_to_hidden = nn.Sequential(*layers)
 
@@ -111,7 +133,7 @@ class MuSigmaEncoder(nn.Module):
         r : torch.Tensor
             Shape (batch_size, r_dim)
         """
-        hidden = torch.relu(self.r_to_hidden(r))
+        hidden = torch.sigmoid(self.r_to_hidden(r))
         mu = self.hidden_to_mu(hidden)
         # Define sigma following convention in "Empirical Evaluation of Neural
         # Process Objectives" and "Attentive Neural Processes"
@@ -138,7 +160,7 @@ class Decoder(nn.Module):
     y_dim : int
         Dimension of y values.
     """
-    def __init__(self, x_dim, z_dim, h_dim, y_dim):
+    def __init__(self, x_dim, z_dim, h_dim, y_dim, n_blocks=5):
         super(Decoder, self).__init__()
 
         self.x_dim = x_dim
@@ -146,12 +168,15 @@ class Decoder(nn.Module):
         self.h_dim = h_dim
         self.y_dim = y_dim
 
-        layers = [nn.Linear(self.x_dim + self.z_dim, self.h_dim),
-                  nn.Sigmoid(),
-                  nn.Linear(self.h_dim, self.h_dim),
-                  nn.Sigmoid(),
-                  nn.Linear(self.h_dim, self.h_dim),
-                  nn.Sigmoid()]
+        blocks = []
+        for _ in range(n_blocks):
+            blocks.append(nn.Linear(self.h_dim, self.h_dim))
+            blocks.append(nn.Sigmoid())
+        head = [nn.Linear(self.x_dim + self.z_dim, self.h_dim), nn.Sigmoid()]
+        layers = []
+        layers.append(head)
+        layers.append(blocks)
+        layers = [x for xs in layers for x in xs]
 
         self.xz_to_hidden = nn.Sequential(*layers)
         self.hidden_to_mu = nn.Linear(self.h_dim, self.y_dim)
@@ -211,18 +236,19 @@ class NeuralProcess(nn.Module):
     h_dim : int
         Dimension of hidden layer in encoder and decoder.
     """
-    def __init__(self, r_dim, z_dim, h_dim):
+    def __init__(self, r_dim, z_dim, h_dim, n_blocks=3):
         super(NeuralProcess, self).__init__()
         self.x_dim = 1
         self.y_dim = 1
         self.r_dim = r_dim
         self.z_dim = z_dim
         self.h_dim = h_dim
+        self.n_blocks = n_blocks
 
         # Initialize networks
-        self.xy_to_r = Encoder(self.x_dim, self.y_dim, self.h_dim, self.r_dim)
+        self.xy_to_r = Encoder(self.x_dim, self.y_dim, self.h_dim, self.r_dim, n_blocks=self.n_blocks)
         self.r_to_mu_sigma = MuSigmaEncoder(self.r_dim, self.z_dim)
-        self.xz_to_y = Decoder(self.x_dim, self.z_dim, self.h_dim, self.y_dim)
+        self.xz_to_y = Decoder(self.x_dim, self.z_dim, self.h_dim, self.y_dim, n_blocks=self.n_blocks)
 
     def aggregate(self, r_i):
         """

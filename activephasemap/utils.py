@@ -3,13 +3,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 from random import randint
-start = time.time()
 
 import torch
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_default_dtype(torch.double)
-end = time.time()
-print("Importing torch took : ", end-start)
 
 from botorch.utils.sampling import draw_sobol_samples
 
@@ -18,7 +15,7 @@ from activephasemap.models.utils import finetune_neural_process
 from activephasemap.models.xgb import XGBoost
 from activephasemap.models.acquisition import XGBUncertainity
 from activephasemap.simulators import UVVisExperiment, MinMaxScaler, scaled_tickformat
-from apdist.distances import AmplitudePhaseDistance as dist
+from apdist.geometry import SquareRootSlopeFramework as SRSF
 
 RNG = np.random.default_rng()
 
@@ -171,8 +168,8 @@ def from_comp_to_spectrum(t, c, comp_model, np_model, return_mlp_outputs=False):
     ci = torch.tensor(c).to(device)
     z_mu, z_std = comp_model.predict(ci.view(1,1,ci.shape[0]))   
     z_dist = torch.distributions.Normal(z_mu.squeeze(), z_std.squeeze())
-    z = z_dist.sample(torch.Size([100]))
-    t = torch.from_numpy(t).repeat(100, 1, 1).to(device)
+    z = z_dist.sample(torch.Size([128]))
+    t = torch.from_numpy(t).repeat(128, 1, 1).to(device)
     t = torch.swapaxes(t, 1, 2)
 
     # sample NP model given the z distribution and time domain
@@ -186,6 +183,30 @@ def from_comp_to_spectrum(t, c, comp_model, np_model, return_mlp_outputs=False):
         return mu_, sigma_, z_mu.squeeze(), z_std.squeeze() 
     else:
         return mu_, sigma_   
+
+def weighted_amplitude_phase(x, y_ref, y_query, **kwargs):
+    srsf = SRSF(x)
+    q_ref = srsf.to_srsf(y_ref)
+    q_query = srsf.to_srsf(y_query)
+    gamma = srsf.get_gamma(q_ref, q_query, **kwargs)
+
+    delta = q_ref-q_query
+    if delta.sum() == 0:
+        dist = 0
+    else:
+        gam_dev = np.gradient(gamma, srsf.time)
+        q_gamma = np.interp(gamma, srsf.time, q_query)
+        y_amplitude = (q_ref - (q_gamma * np.sqrt(gam_dev))) ** 2
+
+        amplitude = np.sqrt(np.trapz(y_amplitude, srsf.time))
+
+        p_gamma = np.sqrt(gam_dev)*y_ref # we define p(\gamma) = \sqrt{\dot{\gamma(t)}} * f(t)
+        p_identity = np.ones_like(gam_dev)*y_ref
+        y_phase =  (p_gamma - p_identity) ** 2
+
+        phase = np.sqrt(np.trapz(y_phase, srsf.time))
+
+    return amplitude, phase
 
 @torch.no_grad()
 def plot_model_accuracy(expt, config, result):
@@ -223,10 +244,8 @@ def plot_model_accuracy(expt, config, result):
         plus = (mu+sigma)
         axs[0].fill_between(expt.wl, minus, plus, color='grey')
         axs[0].scatter(expt.wl, expt.spectra_normalized[i,:], color='k', s=10)
-        mu_norm = (mu - min(mu))/(max(mu)-min(mu))
-        spectra_i_norm =  (expt.spectra_normalized[i,:] - min(expt.spectra_normalized[i,:])) \
-        /(max(expt.spectra_normalized[i,:])-min(expt.spectra_normalized[i,:]))
-        amplitude, phase = dist(expt.t, spectra_i_norm, mu_norm)
+
+        amplitude, phase = weighted_amplitude_phase(expt.t, expt.spectra_normalized[i,:], mu)
         error = 0.5*(amplitude+phase)
         axs[0].set_title("(%.2f, %.2f) : %.2f"%(expt.comps[i,0], expt.comps[i,1], error))
         
@@ -270,7 +289,7 @@ def plot_iteration(expt, config, result):
 
     # plot selected points
     bounds =  expt.bounds.cpu().numpy()
-    C_grid = get_twod_grid(20, bounds)
+    C_grid = get_twod_grid(10, bounds)
     fig, axs = plt.subplot_mosaic(layout, figsize=(4*4, 4*2))
     fig.subplots_adjust(wspace=0.5, hspace=0.5)
     axs['A1'].scatter(expt.comps[:,0], expt.comps[:,1], marker='x', color='k')
@@ -291,7 +310,7 @@ def plot_iteration(expt, config, result):
     cmap = colormaps["magma"]
     norm = Normalize(vmin=min(rx), vmax = max(rx))
     mappable = ScalarMappable(norm=norm, cmap=cmap)
-    axs['B1'].tricontourf(C_grid[:,0], C_grid[:,1], rx, cmap=cmap, norm=norm)
+    axs['B1'].tricontourf(C_grid[:,0], C_grid[:,1], rx, cmap=cmap, norm=norm, levels=50)
     axs['B1'].scatter(expt.points[:, 0], expt.points[:, 1], s=rx_train*10, edgecolor='w', facecolors='none')
     axs['B1'].scatter(result["comps_new"][:,0], result["comps_new"][:,1], marker='x', color='w')    
     divider = make_axes_locatable(axs["B1"])
