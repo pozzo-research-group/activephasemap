@@ -133,7 +133,7 @@ class MuSigmaEncoder(nn.Module):
         r : torch.Tensor
             Shape (batch_size, r_dim)
         """
-        hidden = torch.sigmoid(self.r_to_hidden(r))
+        hidden = self.r_to_hidden(r)
         mu = self.hidden_to_mu(hidden)
         # Define sigma following convention in "Empirical Evaluation of Neural
         # Process Objectives" and "Attentive Neural Processes"
@@ -205,10 +205,14 @@ class Decoder(nn.Module):
         # Input is concatenation of z with every row of x
         input_pairs = torch.cat((x_flat, z_flat), dim=1)
         hidden = self.xz_to_hidden(input_pairs)
+
+        # make sure the output is always positive since 
+        # we train on intensity as the output.
         mu = self.hidden_to_mu(hidden)
         pre_sigma = self.hidden_to_sigma(hidden)
         # Reshape output into expected shape
         mu = mu.view(batch_size, num_points, self.y_dim)
+
         pre_sigma = pre_sigma.view(batch_size, num_points, self.y_dim)
         # Define sigma following convention in "Empirical Evaluation of Neural
         # Process Objectives" and "Attentive Neural Processes"
