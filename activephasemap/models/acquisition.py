@@ -29,12 +29,13 @@ class BaseAcquisiton(torch.nn.Module):
         pass
 
     def optimize(self, batch_size, num_restarts=8, n_iterations=200):
-        X = torch.rand(num_restarts, batch_size, len(self.bounds)).to(device)
+        X = torch.rand(num_restarts, batch_size, self.bounds.shape[1]).to(device)
         X = self.bounds[0] + (self.bounds[1] - self.bounds[0]) * X
         X.requires_grad_(True)
         optimizer = torch.optim.Adam([X], lr=0.1)
 
         start = time.time()
+        torch.cuda.empty_cache()
         for i in range(n_iterations):
             optimizer.zero_grad()
             acqv = -self(X)
@@ -46,7 +47,7 @@ class BaseAcquisiton(torch.nn.Module):
             for j, (lb, ub) in enumerate(zip(*self.bounds)):
                 X.data[..., j].clamp_(lb, ub)  # need to do this on the data not X itself
 
-            if (i + 1) % 50 == 0:
+            if (i + 1) % 25 == 0:
                 end = time.time()
                 time_str =  str(datetime.timedelta(seconds=end-start))
                 print(f"({time_str:>s}) Iteration {i+1:>3}/{n_iterations:>3} - Loss: {loss.item():>4.3f}; dX: {X.grad.mean():>.2e}")

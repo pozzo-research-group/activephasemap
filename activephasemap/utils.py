@@ -26,26 +26,6 @@ from matplotlib import colormaps
 from matplotlib.cm import ScalarMappable
 import matplotlib.patches as mpatches
 
-import importlib.resources as pkg_resources
-
-PRETRAIN_LOC = "./pretrained/model.pt"
-
-with pkg_resources.open_text("activephasemap.pretrained", "best_config.json") as file:    
-    best_np_config = json.load(file)
-N_LATENT = best_np_config["z_dim"]
-N_Z_DRAWS = 256
-xgb_model_args = {"objective": "reg:squarederror",
-                  "max_depth": 3,
-                  "eta": 0.1,
-                  "eval_metric": "rmse"
-                  }
-
-np_model_args = {"num_iterations": 1000, 
-                 "verbose":250, 
-                 "lr":best_np_config["lr"], 
-                 "batch_size": best_np_config["batch_size"]
-                 }
-
 def initialize_points(bounds, n_init_points, device):
     if n_init_points < 1:
         init_x = torch.zeros(1, 1).to(device)
@@ -84,22 +64,22 @@ def print_matrix(A):
 
 """ Helper functions """
 @torch.no_grad()
-def featurize_spectra(np_model, comps_all, spectra_all):
+def featurize_spectra(expt, np_model, comps_all, spectra_all, n_z_draws=256):
     """ Obtain latent space embedding from spectra.
     """
     num_samples, n_domain = spectra_all.shape
     spectra = torch.zeros((num_samples, n_domain)).to(device)
     for i, si in enumerate(spectra_all):
         spectra[i] = torch.tensor(si).to(device)
-    t = torch.linspace(0, 1, n_domain).repeat(num_samples, 1).to(device)
+    t = torch.linspace(min(expt.t), max(expt.t), n_domain).repeat(num_samples, 1).to(device)
 
-    inds = torch.randint(0, n_domain, (int(0.95*n_domain),))
+    inds = torch.randint(0, n_domain, (int(0.5*n_domain),))
     x_context = t[:,inds].unsqueeze(-1) 
     y_context = spectra[:,inds].unsqueeze(-1)
     mu_context, sigma_context = np_model.xy_to_mu_sigma(x_context, y_context)
     q_context = torch.distributions.Normal(mu_context, sigma_context)
         
-    train_y = q_context.rsample(torch.Size([N_Z_DRAWS]))
+    train_y = q_context.rsample(torch.Size([n_z_draws]))
     
     z_mean = train_y.mean(dim=0)
     z_std = train_y.std(dim=0)
@@ -122,20 +102,18 @@ def run_iteration(expt, config):
     }
 
     # Specify the Neural Process model
-    np_model = NeuralProcess(best_np_config["r_dim"], N_LATENT, best_np_config["h_dim"]).to(device)
-    with pkg_resources.path("activephasemap.pretrained", "np_model.pt") as model_path:
-        np_model.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+    np_model = config["np_model"]
 
     print("Finetuning Neural Process model: ")
-    np_model, np_loss = finetune_neural_process(expt.t, spectra_all, np_model, **np_model_args)
+    np_model, np_loss = finetune_neural_process(expt.t, spectra_all, np_model, **config["np_model_args"])
     torch.save(np_model.state_dict(), config["save_dir"]+'np_model_%d.pt'%config["iteration"])
     np.save(config["save_dir"]+'np_loss_%d.npy'%config["iteration"], np_loss)
     result["np_model"] = np_model
     result["np_loss"] = np_loss
 
-    train_x, train_z_mean, train_z_std = featurize_spectra(np_model, comps_all, spectra_all)
+    train_x, train_z_mean, train_z_std = featurize_spectra(expt, np_model, comps_all, spectra_all, config["n_z_draws"])
     train_y = torch.cat((train_z_mean, train_z_std), dim=1)
-    comp_model = XGBoost(xgb_model_args)
+    comp_model = XGBoost(config["xgb_model_args"])
     print("Training comosition model p(z|C): ")
     comp_train_loss, comp_eval_loss = comp_model.train(train_x, train_y)
 
@@ -239,11 +217,11 @@ def plot_model_accuracy(expt, config, result):
                                                         result["np_model"],
                                                         return_mlp_outputs = True
                                                         )
-        axs[0].plot(expt.wl, mu)
+        axs[0].plot(expt.t, mu)
         minus = (mu-sigma)
         plus = (mu+sigma)
-        axs[0].fill_between(expt.wl, minus, plus, color='grey')
-        axs[0].scatter(expt.wl, expt.spectra_normalized[i,:], color='k', s=10)
+        axs[0].fill_between(expt.t, minus, plus, color='grey')
+        axs[0].scatter(expt.t, expt.spectra_normalized[i,:], color='k', s=10)
 
         amplitude, phase = weighted_amplitude_phase(expt.t, expt.spectra_normalized[i,:], mu)
         error = 0.5*(amplitude+phase)
@@ -273,8 +251,8 @@ def plot_model_accuracy(expt, config, result):
             y_pred_mu, y_pred_sigma = result["np_model"].xz_to_y(x_target, q_train.rsample())
             p_y_pred = torch.distributions.Normal(y_pred_mu, y_pred_sigma)
             mu = p_y_pred.loc.detach()
-            axs[2].plot(expt.wl, mu.squeeze().cpu().numpy(), alpha=0.05, c='tab:orange')
-        axs[2].scatter(expt.wl, expt.spectra_normalized[i,:], color='k', s=10)
+            axs[2].plot(expt.t, mu.squeeze().cpu().numpy(), alpha=0.05, c='tab:orange')
+        axs[2].scatter(expt.t, expt.spectra_normalized[i,:], color='k', s=10)
         axs[2].set_title("NP Model")
 
         plt.savefig(iter_plot_dir+'%d.png'%(i))

@@ -219,11 +219,11 @@ class SAXSPorod(Dataset):
         return domain, codomain 
 
     def transform(self, x, y):
-        return 1e3 * y * (x**4)
+        return y * (x**4)
 
     def inverse_transform(self, x, y):
         # convert q from log transform and apply the porod scaling by 4
-        return y/(1e3 * 10 **(4*x)) 
+        return y/(10 **(4*x)) 
 
 class SAXSLogLog(Dataset):
     def __init__(self, root_dir):
@@ -300,15 +300,13 @@ def plot_posterior_samples(x_target, dataset, model):
     fig, axs = plt.subplots(2,5, figsize=(4*5, 4*2))
     rids = np.random.randint(len(dataset), size=10)
     for i, ax in enumerate(axs.flatten()):
-        xi, yi = dataset[i]
+        xi, yi = dataset[rids[i]]
         n_domain = xi.shape[0]
         # Sample locations of context and target points
         locations = np.random.choice(n_domain, size=n_domain, replace=False)
 
         x_context = xi[locations[:int(n_domain/2)], :].reshape(1,int(n_domain/2),1).to(device)
         y_context = yi[locations[:int(n_domain/2)], :].reshape(1,int(n_domain/2),1).to(device)
-        x_target = xi[locations, :].reshape(1,n_domain,1).to(device)
-        y_target = yi[locations, :].reshape(1,n_domain,1).to(device)
 
         with torch.no_grad():
             for _ in range(200):
@@ -325,7 +323,7 @@ def plot_posterior_samples(x_target, dataset, model):
                     Iq = dataset.inverse_transform(x, y)
                     ax.loglog(10**x, Iq, c='tab:blue', alpha=0.5)
                 else:
-                    ax.plot(x, y, alpha=0.05, c='tab:blue')
+                    ax.plot(x, y, alpha=0.5, c='tab:blue')
 
             if isinstance(dataset, SAXSPairWise):
                 Iq = dataset.convert_to_intensity(yi.detach().cpu().squeeze().numpy())

@@ -40,21 +40,6 @@ def context_target_split(x, y, num_context, num_extra_target):
     y_target = y[:, locations, :]
     return x_context, y_context, x_target, y_target
 
-class FeedForwardNeuralNetwork(torch.nn.Sequential):
-    def __init__(self, dimensions, activation, dtype=torch.float64, device="cpu"):
-        super().__init__()
-        for i in range(len(dimensions) - 2):
-            self.add_module('linear%d' % i, torch.nn.Linear(
-                dimensions[i], dimensions[i + 1], dtype=dtype, device=device)
-            )
-            if i < len(dimensions) - 2:
-                if activation == "tanh":
-                    self.add_module('tanh%d' % i, torch.nn.Tanh())
-                elif activation == "relu":
-                    self.add_module('relu%d' % i, torch.nn.ReLU(inplace=True))
-                else:
-                    raise NotImplementedError("Activation type %s is not supported" % activation)
-
 class Encoder(nn.Module):
     """Maps an (x_i, y_i) pair to a representation r_i.
 
@@ -83,8 +68,8 @@ class Encoder(nn.Module):
         blocks = []
         for _ in range(n_blocks):
             blocks.append(nn.Linear(self.h_dim, self.h_dim))
-            blocks.append(nn.Sigmoid())
-        head = [nn.Linear(self.x_dim + self.y_dim, self.h_dim), nn.Sigmoid()]
+            blocks.append(nn.ReLU())
+        head = [nn.Linear(self.x_dim + self.y_dim, self.h_dim), nn.ReLU()]
         tail = [nn.Linear(self.h_dim, self.r_dim)]
         layers = []
         layers.append(head)
@@ -171,8 +156,8 @@ class Decoder(nn.Module):
         blocks = []
         for _ in range(n_blocks):
             blocks.append(nn.Linear(self.h_dim, self.h_dim))
-            blocks.append(nn.Sigmoid())
-        head = [nn.Linear(self.x_dim + self.z_dim, self.h_dim), nn.Sigmoid()]
+            blocks.append(nn.ReLU())
+        head = [nn.Linear(self.x_dim + self.z_dim, self.h_dim), nn.ReLU()]
         layers = []
         layers.append(head)
         layers.append(blocks)
@@ -206,8 +191,6 @@ class Decoder(nn.Module):
         input_pairs = torch.cat((x_flat, z_flat), dim=1)
         hidden = self.xz_to_hidden(input_pairs)
 
-        # make sure the output is always positive since 
-        # we train on intensity as the output.
         mu = self.hidden_to_mu(hidden)
         pre_sigma = self.hidden_to_sigma(hidden)
         # Reshape output into expected shape

@@ -24,20 +24,24 @@ def finetune_neural_process(x, y, model, **kwargs):
     dataset = NPModelDataset(x, y)
     data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     freeze_params, finetune_params = [], []
-    finetune_tags = ["_to_hidden.4.weight", "hidden_to"]
+
+    last_layer_indices = torch.arange(len(model.xz_to_y.xz_to_hidden))[-2:]
     for name, param in model.named_parameters():
-        if "_to_hidden.4.weight" in name:
-            torch.nn.init.xavier_uniform_(param)
-            # print("Finetuning %s..."%name)
-            finetune_params.append(param)
+        tags = name.split('.')
+        if "_to_hidden" in tags[-3]:
+            if "weight" in name:
+                if int(tags[-2]) in last_layer_indices:
+                    torch.nn.init.xavier_uniform_(param)
+                    print("Finetuning %s..."%name)
+                    finetune_params.append(param)
         elif "hidden_to" in name:
             if "weight" in name:
                 torch.nn.init.xavier_uniform_(param)
                 finetune_params.append(param)
-                # print("Finetuning %s..."%name)
+                print("Finetuning %s..."%name)
         else:
             freeze_params.append(param)
-    
+
     # look for possible parallelization on multiple GPUs
     if device=="cuda":
         n_devices = torch.cuda.device_count()

@@ -128,3 +128,49 @@ class UVVisExperiment:
         I_grid = interpolate.splev(wl_, spline, der=0)
 
         return I_grid
+
+class SAXSExperiment:
+    def __init__(self, bounds, direc):
+        self.dim = len(bounds)
+        self.bounds = torch.tensor(bounds).transpose(-1, -2).to(device)
+        self.dir = direc
+
+    def read_iter_data(self, iter):
+        """ Read all the data from different iterations into the experiment.
+
+        This function needs to implement a program that reads all the iterations data and
+        places them into self.comps and self.Iq as numpy arrays of shape (n_samples, dim)
+        where dim would be the corresponding size of composition and SAXS curves. 
+
+        See example for UV-Vis Experiment above.
+
+        Currently it is implemented to process data from a single file. 
+        """
+        data = np.load(self.dir+"/saxs_silica.npz")
+        self.comps = data["comps"]
+        self.Iq = data["y"]
+        self.q = data["x"]
+        self.n_domain = 100
+        self.q_grid = np.linspace(np.log10(min(self.q)), 
+                                  np.log10(max(self.q)), 
+                                  self.n_domain
+                                  )
+
+    def generate(self):
+        self.F = [self.spline_interpolate(self.Iq[i,:]) for i in range(len(self.comps))]
+        self.t = self.q_grid.copy()
+        self.spectra_normalized = np.asarray(self.F)
+
+    def spline_interpolate(self, Iq):
+        spline = interpolate.splrep(np.log10(self.q), np.log10(np.abs(Iq)), s=0)
+        I_grid = interpolate.splev(self.q_grid, spline, der=0)
+
+        return I_grid 
+
+    def plot(self, ax):
+        for si in self.spectra_normalized:
+            ax.plot(self.t, si, color="tab:blue", alpha=0.5)
+        ax.set_xlabel(r"$\log(q)$")
+        ax.set_ylabel(r"$\log(I(q))$")
+
+        return 
