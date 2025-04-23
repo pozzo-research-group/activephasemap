@@ -25,7 +25,7 @@ def finetune_neural_process(x, y, model, **kwargs):
     data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     freeze_params, finetune_params = [], []
 
-    last_layer_indices = torch.arange(len(model.xz_to_y.xz_to_hidden))[-2:]
+    last_layer_indices = torch.arange(len(model.xz_to_y.xz_to_hidden))[-4:]
     for name, param in model.named_parameters():
         tags = name.split('.')
         if "_to_hidden" in tags[-3]:

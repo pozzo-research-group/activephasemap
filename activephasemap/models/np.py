@@ -40,6 +40,66 @@ def context_target_split(x, y, num_context, num_extra_target):
     y_target = y[:, locations, :]
     return x_context, y_context, x_target, y_target
 
+class PositionEmbedder(nn.Module):
+    def __init__(self, basis = "bessel", n_freq=32, sigma=1, n_latents = 8):
+        super(PositionEmbedder, self).__init__()
+
+        if basis=="bessel":
+            self.basis = self.bessel_functions_basis 
+            self.n_basis = 3
+        else:
+            self.basis = self.fourier_basis
+            self.n_basis = 2
+
+        self.n_freq = n_freq
+        self.sigma = sigma 
+        self.n_latents = n_latents
+
+        self.freq = nn.Linear(in_features=1, out_features=self.n_freq)
+        with torch.no_grad(): # fix these weights
+            wts = torch.normal(mean=0,std=self.sigma, size=(self.n_freq, 1))
+            self.freq.weight = nn.Parameter(torch.exp(wts), requires_grad=False)
+            self.freq.bias = nn.Parameter(torch.zeros(self.n_freq), requires_grad=False)
+
+        self.layers = nn.Sequential(
+            nn.Linear(self.n_basis*self.n_freq, 128),
+            nn.ReLU(),
+            nn.Linear(128, self.n_latents)
+        )
+
+        return
+    
+    def forward(self, x):
+        nb, ns, _ = x.shape
+        xn = self.normalize(x)
+        xf = self.freq(xn)
+        xb = self.basis(xf)
+        xe = self.layers(xb)
+
+        return xe
+
+    def normalize(self, x):
+        lower, upper = x.min(1, keepdim=True)[0], x.max(1, keepdim=True)[0]
+
+        return (x-lower)/(upper-lower)
+    
+    def unnormalize(self, x, lower, upper):
+
+        return (upper-lower)*x+lower
+
+    def bessel_functions_basis(self, x):
+        eps = 1e-4
+        x = self.unnormalize(x, 0.01, 20.0)
+        j0 = torch.sin(x)/(x+eps)
+        j1 = ( torch.sin(x)/(x**2 + eps) ) - (torch.cos(x)/(x+eps))
+        j2 = ( (3.0/x**2) - 1.0 )*torch.sin(x)/(x+eps) - (3*torch.cos(x)/(x**2+eps))
+ 
+        return torch.cat([j0, j1, j2], dim=-1)
+
+    def fourier_basis(self, x):
+        return torch.cat([torch.sin(2 * np.pi * x), torch.cos(2 * np.pi * x)], dim=-1)
+
+
 class Encoder(nn.Module):
     """Maps an (x_i, y_i) pair to a representation r_i.
 
@@ -57,19 +117,20 @@ class Encoder(nn.Module):
     r_dim : int
         Dimension of output representation r.
     """
-    def __init__(self, x_dim, y_dim, h_dim, r_dim, n_blocks=5):
+    def __init__(self, emb, x_dim, y_dim, h_dim, r_dim, n_blocks=5):
         super().__init__()
 
         self.x_dim = x_dim
         self.y_dim = y_dim
         self.h_dim = h_dim
         self.r_dim = r_dim
+        self.emb = emb
 
         blocks = []
         for _ in range(n_blocks):
             blocks.append(nn.Linear(self.h_dim, self.h_dim))
             blocks.append(nn.ReLU())
-        head = [nn.Linear(self.x_dim + self.y_dim, self.h_dim), nn.ReLU()]
+        head = [nn.Linear(self.emb.n_latents + self.y_dim, self.h_dim), nn.ReLU()]
         tail = [nn.Linear(self.h_dim, self.r_dim)]
         layers = []
         layers.append(head)
@@ -82,12 +143,13 @@ class Encoder(nn.Module):
     def forward(self, x, y):
         """
         x : torch.Tensor
-            Shape (batch_size, x_dim)
+            Shape (batch_size, num_points, x_dim)
 
         y : torch.Tensor
-            Shape (batch_size, y_dim)
+            Shape (batch_size, num_points, y_dim)
         """
-        input_pairs = torch.cat((x, y), dim=1)
+        xe = self.emb(x)
+        input_pairs = torch.cat((xe, y), dim=-1)
         return self.input_to_hidden(input_pairs)
 
 class MuSigmaEncoder(nn.Module):
@@ -145,19 +207,20 @@ class Decoder(nn.Module):
     y_dim : int
         Dimension of y values.
     """
-    def __init__(self, x_dim, z_dim, h_dim, y_dim, n_blocks=5):
+    def __init__(self, emb, x_dim, z_dim, h_dim, y_dim, n_blocks=5):
         super(Decoder, self).__init__()
 
         self.x_dim = x_dim
         self.z_dim = z_dim
         self.h_dim = h_dim
         self.y_dim = y_dim
+        self.emb = emb
 
         blocks = []
         for _ in range(n_blocks):
             blocks.append(nn.Linear(self.h_dim, self.h_dim))
             blocks.append(nn.ReLU())
-        head = [nn.Linear(self.x_dim + self.z_dim, self.h_dim), nn.ReLU()]
+        head = [nn.Linear(self.emb.n_latents + self.z_dim, self.h_dim), nn.ReLU()]
         layers = []
         layers.append(head)
         layers.append(blocks)
@@ -181,14 +244,18 @@ class Decoder(nn.Module):
         (batch_size, num_points, y_dim).
         """
         batch_size, num_points, _ = x.size()
+        
+        # Embed x into frequency domain
+        xe = self.emb(x)
         # Repeat z, so it can be concatenated with every x. This changes shape
         # from (batch_size, z_dim) to (batch_size, num_points, z_dim)
         z = z.unsqueeze(1).repeat(1, num_points, 1)
         # Flatten x and z to fit with linear layer
-        x_flat = x.view(batch_size * num_points, self.x_dim)
-        z_flat = z.view(batch_size * num_points, self.z_dim)
+        x_flat = xe.view(batch_size, num_points, xe.shape[-1])
+        z_flat = z.view(batch_size, num_points, self.z_dim)
         # Input is concatenation of z with every row of x
-        input_pairs = torch.cat((x_flat, z_flat), dim=1)
+        input_pairs = torch.cat((x_flat, z_flat), dim=-1)
+
         hidden = self.xz_to_hidden(input_pairs)
 
         mu = self.hidden_to_mu(hidden)
@@ -223,7 +290,7 @@ class NeuralProcess(nn.Module):
     h_dim : int
         Dimension of hidden layer in encoder and decoder.
     """
-    def __init__(self, r_dim, z_dim, h_dim, n_blocks=3):
+    def __init__(self, r_dim, z_dim, h_dim, n_blocks=3, pos_basis="bessel"):
         super(NeuralProcess, self).__init__()
         self.x_dim = 1
         self.y_dim = 1
@@ -233,9 +300,10 @@ class NeuralProcess(nn.Module):
         self.n_blocks = n_blocks
 
         # Initialize networks
-        self.xy_to_r = Encoder(self.x_dim, self.y_dim, self.h_dim, self.r_dim, n_blocks=self.n_blocks)
+        emb = PositionEmbedder(basis=pos_basis)
+        self.xy_to_r = Encoder(emb, self.x_dim, self.y_dim, self.h_dim, self.r_dim, n_blocks=self.n_blocks)
         self.r_to_mu_sigma = MuSigmaEncoder(self.r_dim, self.z_dim)
-        self.xz_to_y = Decoder(self.x_dim, self.z_dim, self.h_dim, self.y_dim, n_blocks=self.n_blocks)
+        self.xz_to_y = Decoder(emb, self.x_dim, self.z_dim, self.h_dim, self.y_dim, n_blocks=self.n_blocks)
 
     def aggregate(self, r_i):
         """
@@ -264,8 +332,8 @@ class NeuralProcess(nn.Module):
         """
         batch_size, num_points, _ = x.size()
         # Flatten tensors, as encoder expects one dimensional inputs
-        x_flat = x.view(batch_size * num_points, self.x_dim)
-        y_flat = y.contiguous().view(batch_size * num_points, self.y_dim)
+        x_flat = x.view(batch_size, num_points, self.x_dim)
+        y_flat = y.contiguous().view(batch_size, num_points, self.y_dim)
         # Encode each point into a representation r_i
         r_i_flat = self.xy_to_r(x_flat, y_flat)
         # Reshape tensors into batches

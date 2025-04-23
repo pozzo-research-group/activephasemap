@@ -21,7 +21,10 @@ class PositionEmbedder(nn.Module):
         self.freq = nn.Linear(in_features=1, out_features=self.num_freq)
         print('non-learnable frequencies: {}'.format(self.sigma))
         with torch.no_grad(): # fix these weights
-            self.freq.weight = nn.Parameter(torch.normal(mean=0, std=self.sigma, size=(self.num_freq, 1)), requires_grad=False)
+            self.freq.weight = nn.Parameter(torch.normal(mean=0, std=self.sigma, 
+                                            size=(self.num_freq, 1)), 
+                                            requires_grad=False
+                                            )
             self.freq.bias = nn.Parameter(torch.zeros(self.num_freq), requires_grad=False)
 
         self.layers = nn.Sequential(
@@ -59,33 +62,6 @@ class Encoder(nn.Module):
         latent = self.input_to_hidden(xe.view(1, ns, 16), queries=y.view(1, ns, 1))
         pdb.set_trace()
         return latent 
-
-class _Decoder(nn.Module):
-    def __init__(self, emb, z_dim, h_dim, n_blocks):
-        super().__init__()
-        self.z_dim = z_dim
-        self.xz_to_hidden = PerceiverIO(
-            dim=z_dim,  
-            queries_dim=16,
-            logits_dim = 2,  
-            depth=n_blocks,  
-            num_latents=h_dim,  
-            latent_dim=1  
-        )
-        self.emb = emb
-
-    def forward(self, x, z):
-        batch_size, num_points, _ = x.size()
-    
-        xe = self.emb(x)
-        hidden = self.xz_to_hidden(z.reshape(batch_size,1,self.z_dim), queries=xe.view(batch_size, num_points, 16))
-
-        mu, pre_sigma = hidden[...,0], hidden[...,1]
-        mu = mu.view(batch_size, num_points, 1)
-        pre_sigma = pre_sigma.view(batch_size, num_points, 1)
-        sigma = 0.1 + 0.9 * F.softplus(pre_sigma)
-
-        return mu, sigma 
 
 class PerceiverIONeuralProcess(NeuralProcess):
     """
