@@ -28,8 +28,8 @@ class BaseAcquisiton(torch.nn.Module):
         """
         pass
 
-    def optimize(self, batch_size, num_restarts=8, n_iterations=200):
-        X = torch.rand(num_restarts, batch_size, self.bounds.shape[1]).to(device)
+    def optimize(self, batch_size, n_restarts=8, n_iterations=200):
+        X = torch.rand(n_restarts, batch_size, self.bounds.shape[1]).to(device)
         X = self.bounds[0] + (self.bounds[1] - self.bounds[0]) * X
         X.requires_grad_(True)
         optimizer = torch.optim.Adam([X], lr=0.1)
@@ -107,7 +107,8 @@ class XGBUncertainity(BaseAcquisiton):
         nr, nb, dz = z_mu.shape
         z_dist = torch.distributions.Normal(z_mu, z_std)
         z = z_dist.rsample(torch.Size([self.nz])).view(self.nz*nr*nb, dz)
-        t = torch.from_numpy(self.expt.t).repeat(self.nz*nr*nb, 1, 1).to(device)
+        t_star = torch.linspace(self.expt.t.min(), self.expt.t.max(), self.expt.n_domain)
+        t = t_star.repeat(self.nz*nr*nb, 1, 1).to(device)
         t = torch.swapaxes(t, 1, 2)
         y_samples, _ = self.z_to_y.xz_to_y(t, z)
 
@@ -127,14 +128,14 @@ class XGBUncertainity(BaseAcquisiton):
 
         # Compute uncertainity of spectrum prediction
         y_samples = self.c2y(x)
-        mu_pred = y_samples.view(self.nz, nr, nb, len(self.expt.t), 1).mean(dim=0)
-        sigma_pred = y_samples.view(self.nz, nr, nb, len(self.expt.t), 1).std(dim=0)
+        mu_pred = y_samples.view(self.nz, nr, nb, self.expt.n_domain, 1).mean(dim=0)
+        sigma_pred = y_samples.view(self.nz, nr, nb, self.expt.n_domain, 1).std(dim=0)
         sigma_x = (sigma_pred/mu_pred).mean(dim=-2).squeeze()
 
         # Compute error distribition on spectrum prediction
         y_samples_train = self.c2y(self.train_x.unsqueeze(-2))
-        mu_pred_train = y_samples_train.view(self.nz, self.train_x.shape[0], len(self.expt.t)).mean(dim=0)
-        sigma_pred_train = y_samples_train.view(self.nz, self.train_x.shape[0], len(self.expt.t)).std(dim=0)
+        mu_pred_train = y_samples_train.view(self.nz, self.train_x.shape[0], self.expt.n_domain).mean(dim=0)
+        sigma_pred_train = y_samples_train.view(self.nz, self.train_x.shape[0], self.expt.n_domain).std(dim=0)
         res = (self.train_y-mu_pred_train)/(sigma_pred_train+1e-8)
         res_ = torch.mean(torch.abs(res), dim=1)
         kde = KDEResidualEstimator(self.train_x, res_)

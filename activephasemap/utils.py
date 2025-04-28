@@ -43,7 +43,7 @@ def get_twod_grid(n_grid, bounds):
 
     return points 
 
-def _inset_spectra(c, t, mu, sigma, ax, show_sigma=False, uniform_yscale = None, **kwargs):
+def inset_spectra(c, t, mu, sigma, ax, show_sigma=False, uniform_yscale = None, **kwargs):
         loc_ax = ax.transLimits.transform(c)
         ins_ax = ax.inset_axes([loc_ax[0],loc_ax[1],0.1,0.1])
         ins_ax.plot(t, mu, **kwargs)
@@ -69,9 +69,15 @@ def featurize_spectra(expt, np_model, comps_all, spectra_all, n_z_draws=256):
     """
     num_samples, n_domain = spectra_all.shape
     spectra = torch.zeros((num_samples, n_domain)).to(device)
-    for i, si in enumerate(spectra_all):
-        spectra[i] = torch.tensor(si).to(device)
-    t = torch.linspace(min(expt.t), max(expt.t), n_domain).repeat(num_samples, 1).to(device)
+    if expt.t.ndim==2:
+        t = torch.zeros((num_samples, n_domain)).to(device)
+    else:
+        t = torch.linspace(min(expt.t), max(expt.t), n_domain).repeat(num_samples, 1).to(device)
+
+    for i in range(num_samples):
+        spectra[i,:] = torch.tensor(spectra_all[i,:]).to(device)
+        if expt.t.ndim==2:
+            t[i,:] = torch.tensor(expt.t[i,:]).to(device)
 
     inds = torch.randint(0, n_domain, (int(0.5*n_domain),))
     x_context = t[:,inds].unsqueeze(-1) 
@@ -124,18 +130,18 @@ def run_iteration(expt, config):
     result["comp_train_loss"] = comp_train_loss
     result["comp_eval_loss"] = comp_eval_loss
 
-    print("Collecting next data points to sample by acqusition optimization...")
-    bounds = torch.tensor(config["bounds"]).transpose(-1, -2).to(device)
-    acqf = XGBUncertainity(expt, bounds, np_model, comp_model)
-    new_x = acqf.optimize(config["batch_size"])
-    print_matrix(new_x)
+    # print("Collecting next data points to sample by acqusition optimization...")
+    # bounds = torch.tensor(config["bounds"]).transpose(-1, -2).to(device)
+    # acqf = XGBUncertainity(expt, bounds, np_model, comp_model)
+    # new_x = acqf.optimize(config["batch_size"], config["acqf_n_restarts"], config["acqf_n_iterations"])
+    # print_matrix(new_x)
+    # result["acqf"] = acqf
+    # result["comps_new"] = new_x.cpu().numpy()
 
     torch.save(train_x.cpu(), config["save_dir"]+"train_x_%d.pt" %config["iteration"])
     torch.save(train_z_mean.cpu(), config["save_dir"]+"train_z_mean_%d.pt" %config["iteration"])
     torch.save(train_z_std.cpu(), config["save_dir"]+"train_z_std_%d.pt" %config["iteration"])
 
-    result["acqf"] = acqf
-    result["comps_new"] = new_x.cpu().numpy()
     result["train_x"] = train_x
     result["train_z_mean"] = train_z_mean 
     result["train_z_std"] = train_z_std
@@ -211,19 +217,20 @@ def plot_model_accuracy(expt, config, result):
         fig, axs = plt.subplots(1,3, figsize=(3*4, 4))
 
         # Plot MLP model predictions of the spectra
-        mu, sigma, z_mu, z_std = from_comp_to_spectrum(expt.t, 
+        ti = expt.t[i,:] if expt.t.ndim==2 else expt.t
+        mu, sigma, z_mu, z_std = from_comp_to_spectrum(ti,
                                                         expt.comps[i,:], 
                                                         result["comp_model"], 
                                                         result["np_model"],
                                                         return_mlp_outputs = True
                                                         )
-        axs[0].plot(expt.t, mu)
+        axs[0].plot(ti, mu)
         minus = (mu-sigma)
         plus = (mu+sigma)
-        axs[0].fill_between(expt.t, minus, plus, color='grey')
-        axs[0].scatter(expt.t, expt.spectra_normalized[i,:], color='k', s=10)
+        axs[0].fill_between(ti, minus, plus, color='grey')
+        axs[0].scatter(ti, expt.spectra_normalized[i,:], color='k', s=10)
 
-        amplitude, phase = weighted_amplitude_phase(expt.t, expt.spectra_normalized[i,:], mu)
+        amplitude, phase = weighted_amplitude_phase(ti, expt.spectra_normalized[i,:], mu)
         error = 0.5*(amplitude+phase)
         axs[0].set_title("(%.2f, %.2f) : %.2f"%(expt.comps[i,0], expt.comps[i,1], error))
         
@@ -246,13 +253,13 @@ def plot_model_accuracy(expt, config, result):
         q_train = torch.distributions.Normal(result["train_z_mean"][i,:], 
                                              result["train_z_std"][i,:]
                                             )
-        x_target = torch.from_numpy(expt.t).view(1,len(expt.t),1).to(device)
+        x_target = torch.from_numpy(ti).view(1,len(ti),1).to(device)
         for j in range(200):
             y_pred_mu, y_pred_sigma = result["np_model"].xz_to_y(x_target, q_train.rsample())
             p_y_pred = torch.distributions.Normal(y_pred_mu, y_pred_sigma)
             mu = p_y_pred.loc.detach()
-            axs[2].plot(expt.t, mu.squeeze().cpu().numpy(), alpha=0.05, c='tab:orange')
-        axs[2].scatter(expt.t, expt.spectra_normalized[i,:], color='k', s=10)
+            axs[2].plot(ti, mu.squeeze().cpu().numpy(), alpha=0.05, c='tab:orange')
+        axs[2].scatter(ti, expt.spectra_normalized[i,:], color='k', s=10)
         axs[2].set_title("NP Model")
 
         plt.savefig(iter_plot_dir+'%d.png'%(i))
@@ -336,7 +343,7 @@ def plot_iteration(expt, config, result):
         mu_ = mu.cpu().squeeze().numpy()
         sigma_ = sigma.cpu().squeeze().numpy()
         norm_ci = np.array([scaler_x.transform(ci[0]), scaler_y.transform(ci[1])])
-        _inset_spectra(norm_ci, expt.t, mu_, sigma_, ax, show_sigma=True)
+        inset_spectra(norm_ci, expt.t, mu_, sigma_, ax, show_sigma=True)
     ax.set_xlabel('C1')
     ax.set_ylabel('C2')
 

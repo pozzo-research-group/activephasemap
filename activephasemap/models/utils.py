@@ -3,13 +3,18 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 torch.set_default_dtype(torch.double)
 from torch.utils.data import DataLoader, Dataset
 from activephasemap.models.np import train_neural_process
+import pdb 
 
 class NPModelDataset(Dataset):
     def __init__(self, time, y):
         self.data = []
-        for yi in y:
-            xi = torch.from_numpy(time).to(device)
-            yi = torch.from_numpy(yi).to(device)
+        n_samples = y.shape[0]
+        for i in range(n_samples):
+            if time.ndim==2:
+                xi = torch.from_numpy(time[i,:]).to(device)
+            else:
+                xi = torch.from_numpy(time).to(device)    
+            yi = torch.from_numpy(y[i,:]).to(device)
             self.data.append((xi.unsqueeze(1),yi.unsqueeze(1)))
 
     def __getitem__(self, index):
@@ -25,7 +30,7 @@ def finetune_neural_process(x, y, model, **kwargs):
     data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     freeze_params, finetune_params = [], []
 
-    last_layer_indices = torch.arange(len(model.xz_to_y.xz_to_hidden))[-4:]
+    last_layer_indices = torch.arange(len(model.xz_to_y.xz_to_hidden))[-2:]
     for name, param in model.named_parameters():
         tags = name.split('.')
         if "_to_hidden" in tags[-3]:

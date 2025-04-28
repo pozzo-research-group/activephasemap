@@ -97,6 +97,7 @@ class PositionEmbedder(nn.Module):
         return torch.cat([j0, j1, j2], dim=-1)
 
     def fourier_basis(self, x):
+        x = self.unnormalize(x, -0.5, 0.5)
         return torch.cat([torch.sin(2 * np.pi * x), torch.cos(2 * np.pi * x)], dim=-1)
 
 
@@ -374,7 +375,7 @@ class NeuralProcess(nn.Module):
         _, num_target, _ = x_target.size()
         _, _, y_dim = y_context.size()
 
-        if self.training:
+        if y_target is not None:
             # Encode target and context (context needs to be encoded to
             # calculate kl term)
             # print('class:NeuralProcess:forward: ', x_target.dtype, y_target.dtype)
@@ -439,11 +440,10 @@ def train_neural_process(model, data_loader, optimizer, **kwargs):
         num_context = randint(3, int((n_domain/2)-3))
         num_extra_target = randint(int(n_domain/2), int(n_domain/2)+2)
 
-        x_context, y_context, x_target, y_target = \
-            context_target_split(x, y, num_context, num_extra_target)
-        p_y_pred, q_target, q_context = \
-            model(x_context, y_context, x_target, y_target)
+        x_context, y_context, x_target, y_target = context_target_split(x, y, num_context, num_extra_target)
 
+        p_y_pred, q_target, q_context = model(x_context, y_context, x_target, y_target)
+        
         loss = neural_process_loss(p_y_pred, y_target, q_target, q_context)
         loss.backward()
         optimizer.step()

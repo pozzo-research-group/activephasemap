@@ -136,16 +136,6 @@ class SAXSExperiment:
         self.dir = direc
 
     def read_iter_data(self, iter):
-        """ Read all the data from different iterations into the experiment.
-
-        This function needs to implement a program that reads all the iterations data and
-        places them into self.comps and self.Iq as numpy arrays of shape (n_samples, dim)
-        where dim would be the corresponding size of composition and SAXS curves. 
-
-        See example for UV-Vis Experiment above.
-
-        Currently it is implemented to process data from a single file. 
-        """
         data = np.load(self.dir+"/saxs_silica.npz")
         self.comps = data["comps"]
         self.Iq = data["y"]
