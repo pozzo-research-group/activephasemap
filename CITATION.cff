@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper below."
+title: "activephasemap"
+type: software
+authors:
+  - name: "Pozzo Research Group, University of Washington"
+repository-code: "https://github.com/pozzo-research-group/activephasemap"
+url: "https://pozzorg.com"
+preferred-citation:
+  type: article
+  title: "Autonomous phase mapping of gold nanoparticles synthesis with differentiable models of spectral shape"
+  authors:
+    - family-names: "Vaddi"
+      given-names: "Kiran"
+    - family-names: "Chiang"
+      given-names: "Huat Thart"
+    - family-names: "Grey"
+      given-names: "Aleksandra"
+    - family-names: "Wylie"
+      given-names: "Zachery R."
+    - family-names: "Pozzo"
+      given-names: "Lilo D."
+  journal: "npj Computational Materials"
+  year: 2025
+  volume: "11"
+  issue: "1"
+  start: "335"
+  doi: "10.1038/s41524-025-01822-z"
