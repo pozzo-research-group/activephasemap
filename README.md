@@ -1,4 +1,6 @@
 # activephasemap
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24484799.svg)](https://doi.org/10.5281/zenodo.24484799)
 Active sampling-based strategies for constructing 'phase' maps using spectroscopic measurements
 
 ## Installation instructions:
